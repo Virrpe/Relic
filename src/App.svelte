@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { WebGLRenderer } from './renderer/WebGLRenderer';
   import { generateMotif } from './source/MotifLibrary';
+  import { loadImage, generatePointCloudFromImage, type ImageData } from './source/ImageIngestion';
   import { DEFAULT_RENDER_STATE, type RenderState } from './state/RenderState';
   import { PRESETS, getPreset } from './presets/index';
 
@@ -12,6 +13,11 @@
   let state: RenderState = { ...DEFAULT_RENDER_STATE };
   let canvasWidth = 800;
   let canvasHeight = 600;
+  
+  // Image data
+  let currentImage: ImageData | null = null;
+  let isLoadingImage = false;
+  let fileInput: HTMLInputElement;
 
   // Quality tiers for density mapping
   const QUALITY_DENSITY = {
@@ -24,8 +30,45 @@
     if (!renderer) return;
     
     const effectiveDensity = state.density * QUALITY_DENSITY[state.qualityTier];
-    const cloud = generateMotif(state.presetId, effectiveDensity, state.seed);
+    
+    let cloud;
+    if (state.sourceMode === 'image' && currentImage) {
+      cloud = generatePointCloudFromImage(currentImage, effectiveDensity, state.seed);
+    } else {
+      cloud = generateMotif(state.presetId, effectiveDensity, state.seed);
+    }
     renderer.setPointCloud(cloud);
+  }
+
+  function handleModeChange(mode: 'motif' | 'image') {
+    state.sourceMode = mode;
+    if (mode === 'motif') {
+      currentImage = null;
+    }
+    regenerateCloud();
+  }
+
+  async function handleFileUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
+      console.error('Invalid file type. Use JPG, PNG, or WebP.');
+      return;
+    }
+    
+    isLoadingImage = true;
+    try {
+      currentImage = await loadImage(file);
+      state.sourceMode = 'image';
+      regenerateCloud();
+    } catch (err) {
+      console.error('Failed to load image:', err);
+    } finally {
+      isLoadingImage = false;
+    }
   }
 
   function handlePresetChange(e: Event) {
@@ -53,7 +96,9 @@
 
   function handleExport(scale: number) {
     if (!renderer) return;
-    const filename = `relic-${state.presetId}-${Date.now()}.png`;
+    const filename = state.sourceMode === 'image' 
+      ? `relic-image-${Date.now()}.png`
+      : `relic-${state.presetId}-${Date.now()}.png`;
     renderer.downloadPNG(filename, scale);
   }
 
@@ -108,13 +153,48 @@
     
     <div class="control-section">
       <label>
-        <span>Preset</span>
-        <select value={state.presetId} on:change={handlePresetChange}>
-          {#each PRESETS as preset}
-            <option value={preset.id}>{preset.name}</option>
-          {/each}
-        </select>
+        <span>Mode</span>
+        <div class="mode-buttons">
+          <button 
+            class:active={state.sourceMode === 'motif'}
+            on:click={() => handleModeChange('motif')}
+          >Motif</button>
+          <button 
+            class:active={state.sourceMode === 'image'}
+            on:click={() => handleModeChange('image')}
+          >Image</button>
+        </div>
       </label>
+      
+      {#if state.sourceMode === 'image'}
+        <label>
+          <span>Upload Image</span>
+          <input 
+            type="file" 
+            accept="image/jpeg,image/png,image/webp"
+            bind:this={fileInput}
+            on:change={handleFileUpload}
+            disabled={isLoadingImage}
+          />
+          {#if isLoadingImage}
+            <span class="loading">Loading...</span>
+          {/if}
+          {#if currentImage && !isLoadingImage}
+            <span class="loaded">Image loaded ({currentImage.width}x{currentImage.height})</span>
+          {/if}
+        </label>
+      {/if}
+      
+      {#if state.sourceMode === 'motif'}
+        <label>
+          <span>Preset</span>
+          <select value={state.presetId} on:change={handlePresetChange}>
+            {#each PRESETS as preset}
+              <option value={preset.id}>{preset.name}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
       
       <label>
         <span>Quality</span>
@@ -386,5 +466,60 @@
   .export-buttons button:hover {
     background: #2a2a2a;
     border-color: #555;
+  }
+
+  .mode-buttons {
+    display: flex;
+    gap: 8px;
+  }
+
+  .mode-buttons button {
+    flex: 1;
+    padding: 8px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    color: #888;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .mode-buttons button:hover {
+    border-color: #555;
+  }
+
+  .mode-buttons button.active {
+    background: #2a2a2a;
+    color: #e0e0e0;
+    border-color: #555;
+  }
+
+  input[type="file"] {
+    font-size: 12px;
+    color: #888;
+  }
+
+  input[type="file"]::file-selector-button {
+    padding: 6px 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    color: #e0e0e0;
+    cursor: pointer;
+    margin-right: 8px;
+  }
+
+  input[type="file"]::file-selector-button:hover {
+    border-color: #555;
+  }
+
+  .loading, .loaded {
+    font-size: 10px;
+    color: #666;
+    margin-top: 4px;
+  }
+
+  .loaded {
+    color: #4a4;
   }
 </style>
