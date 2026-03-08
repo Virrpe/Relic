@@ -18,7 +18,6 @@
   // Image data
   let currentImage: ImageData | null = null;
   let isLoadingImage = false;
-  let fileInput: HTMLInputElement;
   
   // Text data
   let currentText: TextData | null = null;
@@ -206,7 +205,6 @@
           <input 
             type="file" 
             accept="image/jpeg,image/png,image/webp"
-            bind:this={fileInput}
             on:change={handleFileUpload}
             disabled={isLoadingImage}
           />

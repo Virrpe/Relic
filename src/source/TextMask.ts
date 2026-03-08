@@ -53,12 +53,8 @@ export function renderText(text: string, fontSize: number = 64): TextData {
   const luminance = new Float32Array(canvas.width * canvas.height);
   
   for (let i = 0; i < canvas.width * canvas.height; i++) {
-    const r = pixels[i * 4];
-    const g = pixels[i * 4 + 1];
-    const b = pixels[i * 4 + 2];
-    
-    // Use green channel as simple luminance (white text on black)
-    luminance[i] = g / 255;
+    // Use green channel as simple luminance (white text on black background)
+    luminance[i] = pixels[i * 4 + 1] / 255;
   }
   
   return {
