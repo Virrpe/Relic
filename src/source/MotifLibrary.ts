@@ -1,4 +1,12 @@
-import { createPointCloud, type PointCloud } from '../pointcloud/PointCloud';
+import { 
+  createPointCloud, 
+  type PointCloud,
+  type RenderLayer,
+  type ParticleType,
+  LAYER_VALUES,
+  PARTICLE_TYPE_VALUES,
+  STRIDE
+} from '../pointcloud/PointCloud';
 
 // Seeded random number generator
 function seededRandom(seed: number): () => number {
@@ -138,17 +146,101 @@ function eelShape(x: number, y: number): number {
   return Math.min(1, inBody * 0.8 + headDist);
 }
 
-// Generate point cloud from a shape function
+// Configuration for multi-layer generation (motif mode)
+export interface MotifLayerConfig {
+  layer: RenderLayer;
+  particleType: ParticleType;
+  densityMultiplier: number;
+  sizeMultiplier: number;
+  erosionBias: number;
+  layerWeight: number; // Weight contribution from shape function
+}
+
+// Motif-specific layer configs (denser, larger than text mode)
+export const MOTIF_LAYER_CONFIGS: MotifLayerConfig[] = [
+  {
+    layer: 'atmospheric',
+    particleType: 'dust',
+    densityMultiplier: 0.5,
+    sizeMultiplier: 0.5,
+    erosionBias: 0.4,
+    layerWeight: 0.2
+  },
+  {
+    layer: 'structural',
+    particleType: 'medium',
+    densityMultiplier: 1.0,
+    sizeMultiplier: 1.0,
+    erosionBias: 0.15,
+    layerWeight: 1.0
+  },
+  {
+    layer: 'accent',
+    particleType: 'chunk',
+    densityMultiplier: 0.2,
+    sizeMultiplier: 2.0,
+    erosionBias: 0.0,
+    layerWeight: 0.8
+  }
+];
+
+// Compute focal regions from shape function (areas of high detail)
+function computeMotifFocalMap(
+  shapeFn: (x: number, y: number) => number,
+  gridSize: number
+): Float32Array {
+  const focal = new Float32Array(gridSize * gridSize);
+  
+  for (let gy = 1; gy < gridSize - 1; gy++) {
+    for (let gx = 1; gx < gridSize - 1; gx++) {
+      const jx = gx / gridSize;
+      const jy = gy / gridSize;
+      
+      // Check if this is an edge/detail area (high gradient)
+      const leftWeight = shapeFn((gx - 1) / gridSize, jy);
+      const rightWeight = shapeFn((gx + 1) / gridSize, jy);
+      const topWeight = shapeFn(jx, (gy - 1) / gridSize);
+      const bottomWeight = shapeFn(jx, (gy + 1) / gridSize);
+      
+      const gradient = Math.abs(rightWeight - leftWeight) + Math.abs(bottomWeight - topWeight);
+      focal[gy * gridSize + gx] = gradient;
+    }
+  }
+  
+  // Normalize
+  let maxFocal = 0;
+  for (let i = 0; i < focal.length; i++) {
+    if (focal[i] > maxFocal) maxFocal = focal[i];
+  }
+  if (maxFocal > 0) {
+    for (let i = 0; i < focal.length; i++) {
+      focal[i] /= maxFocal;
+    }
+  }
+  
+  return focal;
+}
+
+// Generate point cloud from a shape function with multi-layer approach
 export function generatePointCloud(
   shapeFn: (x: number, y: number) => number,
   density: number,
-  seed: number
+  seed: number,
+  layerConfigs: MotifLayerConfig[] = MOTIF_LAYER_CONFIGS
 ): PointCloud {
   const random = seededRandom(seed);
   
-  // Determine grid size based on density
-  const gridSize = Math.floor(50 + density * 150);
+  // Determine grid size based on density (motif = denser)
+  const gridSize = Math.floor(60 + density * 180);
+  
+  // Compute focal map for accent placement
+  const focalMap = computeMotifFocalMap(shapeFn, gridSize);
+  
   const points: number[] = [];
+  
+  // Pre-compute layer and type values
+  const layerValues = layerConfigs.map(c => LAYER_VALUES[c.layer]);
+  const typeValues = layerConfigs.map(c => PARTICLE_TYPE_VALUES[c.particleType]);
   
   for (let gy = 0; gy < gridSize; gy++) {
     for (let gx = 0; gx < gridSize; gx++) {
@@ -157,20 +249,69 @@ export function generatePointCloud(
       const jy = (gy + random()) / gridSize;
       
       const weight = shapeFn(jx, jy);
+      const isFocal = focalMap[gy * gridSize + gx] > 0.3;
       
-      // Probabilistic inclusion based on weight
-      if (weight > 0.05 && random() < weight * density + 0.1) {
-        // Add some spatial variation
-        const px = (jx - 0.5) * 1.8 + (random() - 0.5) * 0.02;
-        const py = (jy - 0.5) * 1.8 + (random() - 0.5) * 0.02;
+      // Add some spatial variation
+      const px = (jx - 0.5) * 1.8 + (random() - 0.5) * 0.015;
+      const py = (jy - 0.5) * 1.8 + (random() - 0.5) * 0.015;
+      
+      // Generate particles for each layer
+      for (let layerIdx = 0; layerIdx < layerConfigs.length; layerIdx++) {
+        const config = layerConfigs[layerIdx];
+        const layerDensity = density * config.densityMultiplier;
         
-        points.push(px, py, weight, random());
+        // Atmospheric layer: background dust everywhere
+        if (config.layer === 'atmospheric') {
+          // Atmospheric appears in and around shape - creates the "fog" effect
+          if (random() < layerDensity * 0.25 + 0.03) {
+            const particleWeight = (weight * config.layerWeight + random() * 0.15) * 0.4;
+            
+            points.push(
+              px + (random() - 0.5) * 0.1,
+              py + (random() - 0.5) * 0.1,
+              Math.max(0, particleWeight),
+              random(),
+              layerValues[layerIdx],
+              typeValues[layerIdx],
+              config.erosionBias
+            );
+          }
+        }
+        // Structural layer: main form
+        else if (config.layer === 'structural') {
+          if (weight > 0.05 && random() < weight * layerDensity * 0.9 + 0.08) {
+            points.push(
+              px, py,
+              weight * config.layerWeight,
+              random(),
+              layerValues[layerIdx],
+              typeValues[layerIdx],
+              config.erosionBias
+            );
+          }
+        }
+        // Accent layer: focal details, chunky particles
+        else if (config.layer === 'accent') {
+          if (isFocal && weight > 0.1 && random() < weight * layerDensity * 0.6) {
+            // Occasionally use streak particles for variety
+            const useStreak = random() > 0.75;
+            
+            points.push(
+              px, py,
+              Math.min(1, weight * 1.3),
+              random(),
+              layerValues[layerIdx],
+              useStreak ? PARTICLE_TYPE_VALUES['streak'] : typeValues[layerIdx],
+              0
+            );
+          }
+        }
       }
     }
   }
   
   const buffer = new Float32Array(points);
-  return createPointCloud(buffer, points.length / 4);
+  return createPointCloud(buffer, points.length / STRIDE);
 }
 
 // Preset generators

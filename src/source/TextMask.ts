@@ -1,4 +1,12 @@
-import { createPointCloud, type PointCloud } from '../pointcloud/PointCloud';
+import { 
+  createPointCloud, 
+  type PointCloud,
+  type RenderLayer,
+  type ParticleType,
+  LAYER_VALUES,
+  PARTICLE_TYPE_VALUES,
+  STRIDE
+} from '../pointcloud/PointCloud';
 
 // Seeded random number generator
 function seededRandom(seed: number): () => number {
@@ -8,6 +16,39 @@ function seededRandom(seed: number): () => number {
     return s / 0x7fffffff;
   };
 }
+
+// Text-specific layer configs (sparser than motif mode)
+export interface TextLayerConfig {
+  layer: RenderLayer;
+  particleType: ParticleType;
+  densityMultiplier: number;
+  sizeMultiplier: number;
+  erosionBias: number;
+}
+
+export const TEXT_LAYER_CONFIGS: TextLayerConfig[] = [
+  {
+    layer: 'atmospheric',
+    particleType: 'dust',
+    densityMultiplier: 0.3,
+    sizeMultiplier: 0.4,
+    erosionBias: 0.35
+  },
+  {
+    layer: 'structural',
+    particleType: 'medium',
+    densityMultiplier: 0.7,
+    sizeMultiplier: 0.9,
+    erosionBias: 0.1
+  },
+  {
+    layer: 'accent',
+    particleType: 'chunk',
+    densityMultiplier: 0.1,
+    sizeMultiplier: 1.5,
+    erosionBias: 0.0
+  }
+];
 
 export interface TextData {
   canvas: HTMLCanvasElement;
@@ -65,21 +106,26 @@ export function renderText(text: string, fontSize: number = 64): TextData {
   };
 }
 
-// Generate point cloud from text
+// Generate point cloud from text with multi-layer approach
 export function generatePointCloudFromText(
   textData: TextData,
   density: number,
-  seed: number
+  seed: number,
+  layerConfigs: TextLayerConfig[] = TEXT_LAYER_CONFIGS
 ): PointCloud {
   const { width, height, luminance } = textData;
   const random = seededRandom(seed);
   
-  // Determine grid size based on density
-  const baseGrid = Math.floor(30 + density * 100);
-  const gridSize = Math.min(baseGrid, 150);
+  // Determine grid size based on density (text = sparser than motif)
+  const baseGrid = Math.floor(25 + density * 80);
+  const gridSize = Math.min(baseGrid, 120);
   
   const points: number[] = [];
   const aspectRatio = width / height;
+  
+  // Pre-compute layer and type values
+  const layerValues = layerConfigs.map(c => LAYER_VALUES[c.layer]);
+  const typeValues = layerConfigs.map(c => PARTICLE_TYPE_VALUES[c.particleType]);
   
   for (let gy = 0; gy < gridSize; gy++) {
     for (let gx = 0; gx < gridSize; gx++) {
@@ -95,17 +141,66 @@ export function generatePointCloudFromText(
       // Get weight (text pixels = high weight)
       let weight = luminance[imgIdx] || 0;
       
-      // Probabilistic inclusion based on weight
-      if (weight > 0.1 && random() < weight * density * 0.9 + 0.05) {
-        // Map to normalized coordinates (-1 to 1), maintaining aspect ratio
-        const px = (jx - 0.5) * 1.8 * Math.min(1, aspectRatio);
-        const py = (jy - 0.5) * 1.8;
+      // Skip empty areas for structural/accent
+      if (weight < 0.1) continue;
+      
+      // Map to normalized coordinates (-1 to 1), maintaining aspect ratio
+      const px = (jx - 0.5) * 1.8 * Math.min(1, aspectRatio);
+      const py = (jy - 0.5) * 1.8;
+      
+      // Generate particles for each layer
+      for (let layerIdx = 0; layerIdx < layerConfigs.length; layerIdx++) {
+        const config = layerConfigs[layerIdx];
+        const layerDensity = density * config.densityMultiplier;
         
-        points.push(px, py, weight, random());
+        // Atmospheric: appears even outside text (creates ambient feel)
+        if (config.layer === 'atmospheric') {
+          // Atmospheric particles everywhere
+          if (random() < layerDensity * 0.2 + 0.02) {
+            const particleWeight = (weight * 0.3 + random() * 0.1) * 0.5;
+            
+            points.push(
+              px + (random() - 0.5) * 0.08,
+              py + (random() - 0.5) * 0.08,
+              Math.max(0, particleWeight),
+              random(),
+              layerValues[layerIdx],
+              typeValues[layerIdx],
+              config.erosionBias
+            );
+          }
+        }
+        // Structural: forms the text
+        else if (config.layer === 'structural') {
+          if (random() < weight * layerDensity * 0.9 + 0.05) {
+            points.push(
+              px, py,
+              weight,
+              random(),
+              layerValues[layerIdx],
+              typeValues[layerIdx],
+              config.erosionBias
+            );
+          }
+        }
+        // Accent: edges and details
+        else if (config.layer === 'accent') {
+          // Only at edges (where weight is moderate)
+          if (weight > 0.2 && weight < 0.8 && random() < weight * layerDensity * 0.4) {
+            points.push(
+              px, py,
+              Math.min(1, weight * 1.4),
+              random(),
+              layerValues[layerIdx],
+              typeValues[layerIdx],
+              0
+            );
+          }
+        }
       }
     }
   }
   
   const buffer = new Float32Array(points);
-  return createPointCloud(buffer, points.length / 4);
+  return createPointCloud(buffer, points.length / STRIDE);
 }

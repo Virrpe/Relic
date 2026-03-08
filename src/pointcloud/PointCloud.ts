@@ -1,5 +1,16 @@
 // Point cloud data contract
-// Packed as Float32Array: [x, y, weight, seed, ...] per particle
+// Packed as Float32Array: [x, y, weight, seed, layer, particleType, erosionBias, ...] per particle
+
+export type RenderLayer = 
+  | 'atmospheric'   // Background dust, noise, ambient particles
+  | 'structural'    // Core form, main structure
+  | 'accent';       // Focal points, highlights, detail
+
+export type ParticleType = 
+  | 'dust'          // Tiny, sparse ambient particles
+  | 'medium'        // Standard structural particles
+  | 'chunk'         // Larger, chunkier particles
+  | 'streak';       // Elongated trail-like particles
 
 export interface Bounds {
   minX: number;
@@ -32,8 +43,8 @@ function computeBounds(buffer: Float32Array, particleCount: number): Bounds {
   let minY = Infinity, maxY = -Infinity;
 
   for (let i = 0; i < particleCount; i++) {
-    const x = buffer[i * 4];
-    const y = buffer[i * 4 + 1];
+    const x = buffer[i * STRIDE];
+    const y = buffer[i * STRIDE + 1];
     minX = Math.min(minX, x);
     maxX = Math.max(maxX, x);
     minY = Math.min(minY, y);
@@ -52,7 +63,23 @@ function computeBounds(buffer: Float32Array, particleCount: number): Bounds {
   };
 }
 
+export const STRIDE = 8;
+// 8 floats per particle: x, y, weight, seed, layer, particleType, erosionBias
+
 export function getStride(): number {
-  // 4 floats per particle: x, y, weight, seed
-  return 4;
+  return STRIDE;
 }
+
+// Layer and type constants for encoding
+export const LAYER_VALUES: Record<RenderLayer, number> = {
+  atmospheric: 0.0,
+  structural: 0.5,
+  accent: 1.0
+};
+
+export const PARTICLE_TYPE_VALUES: Record<ParticleType, number> = {
+  dust: 0.0,
+  medium: 0.33,
+  chunk: 0.66,
+  streak: 1.0
+};

@@ -24,6 +24,7 @@ export class WebGLRenderer {
   private uWind: WebGLUniformLocation | null = null;
   private uTurbulence: WebGLUniformLocation | null = null;
   private uErosion: WebGLUniformLocation | null = null;
+  private uErosionDir: WebGLUniformLocation | null = null;
   private uBrightness: WebGLUniformLocation | null = null;
   private uContrast: WebGLUniformLocation | null = null;
   private uPointSize: WebGLUniformLocation | null = null;
@@ -76,6 +77,7 @@ export class WebGLRenderer {
     this.uWind = gl.getUniformLocation(this.program, 'uWind');
     this.uTurbulence = gl.getUniformLocation(this.program, 'uTurbulence');
     this.uErosion = gl.getUniformLocation(this.program, 'uErosion');
+    this.uErosionDir = gl.getUniformLocation(this.program, 'uErosionDir');
     this.uBrightness = gl.getUniformLocation(this.program, 'uBrightness');
     this.uContrast = gl.getUniformLocation(this.program, 'uContrast');
     this.uPointSize = gl.getUniformLocation(this.program, 'uPointSize');
@@ -90,10 +92,10 @@ export class WebGLRenderer {
     this.buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     
-    // Point attribute (x, y, weight, seed)
+    // Point attribute (x, y, weight, seed, layer, particleType, erosionBias) - 8 floats
     const loc = gl.getAttribLocation(this.program, 'aPoint');
     gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(loc, 8, gl.FLOAT, false, 0, 0);
     
     gl.bindVertexArray(null);
     
@@ -131,7 +133,6 @@ export class WebGLRenderer {
     if (!this.pointCloud || !this.canvas) return;
 
     const bounds = this.pointCloud.bounds;
-    const canvasAspect = this.canvas.width / this.canvas.height;
 
     // Handle empty bounds
     if (bounds.width === 0 || bounds.height === 0) {
@@ -189,6 +190,7 @@ export class WebGLRenderer {
     gl.uniform1f(this.uWind, state.wind);
     gl.uniform1f(this.uTurbulence, state.turbulence);
     gl.uniform1f(this.uErosion, state.erosion);
+    gl.uniform2f(this.uErosionDir, state.erosionX || 0, state.erosionY || 0);
     gl.uniform1f(this.uBrightness, state.brightness);
     gl.uniform1f(this.uContrast, state.contrast);
     gl.uniform1f(this.uPointSize, state.pointSize);
