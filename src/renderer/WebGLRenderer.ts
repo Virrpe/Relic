@@ -201,9 +201,9 @@ export class WebGLRenderer {
     gl.bindVertexArray(null);
   }
 
-  startAnimation(state: RenderState): void {
+  startAnimation(stateGetter: () => RenderState): void {
     const animate = () => {
-      this.render(state);
+      this.render(stateGetter());
       this.animationId = requestAnimationFrame(animate);
     };
     animate();

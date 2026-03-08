@@ -145,8 +145,8 @@
     // Generate initial cloud
     regenerateCloud();
     
-    // Start animation
-    renderer.startAnimation(state);
+    // Start animation - pass a getter to always get current state
+    renderer.startAnimation(() => state);
     
     // Handle resize
     const resizeObserver = new ResizeObserver(entries => {
