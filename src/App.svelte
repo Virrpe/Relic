@@ -3,6 +3,7 @@
   import { WebGLRenderer } from './renderer/WebGLRenderer';
   import { generateMotif } from './source/MotifLibrary';
   import { loadImage, generatePointCloudFromImage, type ImageData } from './source/ImageIngestion';
+  import { renderText, generatePointCloudFromText, type TextData } from './source/TextMask';
   import { DEFAULT_RENDER_STATE, type RenderState } from './state/RenderState';
   import { PRESETS, getPreset } from './presets/index';
 
@@ -18,6 +19,10 @@
   let currentImage: ImageData | null = null;
   let isLoadingImage = false;
   let fileInput: HTMLInputElement;
+  
+  // Text data
+  let currentText: TextData | null = null;
+  let textInput = 'RELIC';
 
   // Quality tiers for density mapping
   const QUALITY_DENSITY = {
@@ -34,18 +39,38 @@
     let cloud;
     if (state.sourceMode === 'image' && currentImage) {
       cloud = generatePointCloudFromImage(currentImage, effectiveDensity, state.seed);
+    } else if (state.sourceMode === 'text' && currentText) {
+      cloud = generatePointCloudFromText(currentText, effectiveDensity, state.seed);
     } else {
       cloud = generateMotif(state.presetId, effectiveDensity, state.seed);
     }
     renderer.setPointCloud(cloud);
   }
 
-  function handleModeChange(mode: 'motif' | 'image') {
+  function handleModeChange(mode: 'motif' | 'image' | 'text') {
     state.sourceMode = mode;
     if (mode === 'motif') {
       currentImage = null;
+      currentText = null;
+    } else if (mode === 'image') {
+      currentText = null;
+    } else if (mode === 'text') {
+      currentImage = null;
+      if (!currentText) {
+        // Generate default text
+        currentText = renderText(textInput);
+      }
     }
     regenerateCloud();
+  }
+
+  function handleTextInput(e: Event) {
+    const target = e.target as HTMLInputElement;
+    textInput = target.value;
+    if (textInput.trim()) {
+      currentText = renderText(textInput);
+      regenerateCloud();
+    }
   }
 
   async function handleFileUpload(e: Event) {
@@ -96,9 +121,14 @@
 
   function handleExport(scale: number) {
     if (!renderer) return;
-    const filename = state.sourceMode === 'image' 
-      ? `relic-image-${Date.now()}.png`
-      : `relic-${state.presetId}-${Date.now()}.png`;
+    let filename: string;
+    if (state.sourceMode === 'image') {
+      filename = `relic-image-${Date.now()}.png`;
+    } else if (state.sourceMode === 'text') {
+      filename = `relic-text-${Date.now()}.png`;
+    } else {
+      filename = `relic-${state.presetId}-${Date.now()}.png`;
+    }
     renderer.downloadPNG(filename, scale);
   }
 
@@ -163,6 +193,10 @@
             class:active={state.sourceMode === 'image'}
             on:click={() => handleModeChange('image')}
           >Image</button>
+          <button 
+            class:active={state.sourceMode === 'text'}
+            on:click={() => handleModeChange('text')}
+          >Text</button>
         </div>
       </label>
       
@@ -182,6 +216,18 @@
           {#if currentImage && !isLoadingImage}
             <span class="loaded">Image loaded ({currentImage.width}x{currentImage.height})</span>
           {/if}
+        </label>
+      {/if}
+      
+      {#if state.sourceMode === 'text'}
+        <label>
+          <span>Enter Text</span>
+          <input 
+            type="text" 
+            value={textInput}
+            on:input={handleTextInput}
+            placeholder="Enter text..."
+          />
         </label>
       {/if}
       
@@ -521,5 +567,25 @@
 
   .loaded {
     color: #4a4;
+  }
+
+  input[type="text"] {
+    width: 100%;
+    padding: 8px 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    color: #e0e0e0;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  input[type="text"]:hover {
+    border-color: #444;
+  }
+
+  input[type="text"]:focus {
+    outline: none;
+    border-color: #555;
   }
 </style>
