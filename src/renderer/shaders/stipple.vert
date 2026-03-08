@@ -9,6 +9,8 @@ uniform float uWind;
 uniform float uTurbulence;
 uniform float uErosion;
 uniform vec2 uResolution;
+uniform float uPointSize;
+uniform vec4 uTransform; // scaleX, scaleY, offsetX, offsetY
 
 out float vWeight;
 out float vSeed;
@@ -53,9 +55,12 @@ void main() {
   pos.y += erosionDrift;
   pos.x += sin(erosionDrift * 5.0 + seedOffset) * uErosion * 0.02;
   
+  // Apply fit-to-viewport transform
+  pos = pos * vec2(uTransform.x, uTransform.y) + vec2(uTransform.z, uTransform.w);
+  
   // Output
   gl_Position = vec4(pos, 0.0, 1.0);
-  gl_PointSize = 3.0; // Base size, modified in fragment
+  gl_PointSize = uPointSize;
   
   vWeight = aPoint.z;
   vSeed = seed;

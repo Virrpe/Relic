@@ -13,6 +13,12 @@ export class WebGLRenderer {
   private animationId: number | null = null;
   private startTime: number = 0;
 
+  // Fit-to-viewport transform
+  private scaleX = 1;
+  private scaleY = 1;
+  private offsetX = 0;
+  private offsetY = 0;
+
   // Uniform locations
   private uTime: WebGLUniformLocation | null = null;
   private uWind: WebGLUniformLocation | null = null;
@@ -22,6 +28,7 @@ export class WebGLRenderer {
   private uContrast: WebGLUniformLocation | null = null;
   private uPointSize: WebGLUniformLocation | null = null;
   private uResolution: WebGLUniformLocation | null = null;
+  private uTransform: WebGLUniformLocation | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -73,6 +80,7 @@ export class WebGLRenderer {
     this.uContrast = gl.getUniformLocation(this.program, 'uContrast');
     this.uPointSize = gl.getUniformLocation(this.program, 'uPointSize');
     this.uResolution = gl.getUniformLocation(this.program, 'uResolution');
+    this.uTransform = gl.getUniformLocation(this.program, 'uTransform');
     
     // Create VAO
     this.vao = gl.createVertexArray();
@@ -115,7 +123,33 @@ export class WebGLRenderer {
 
   setPointCloud(cloud: PointCloud): void {
     this.pointCloud = cloud;
+    this.computeFitToViewport();
     this.updateBuffer();
+  }
+
+  private computeFitToViewport(): void {
+    if (!this.pointCloud || !this.canvas) return;
+
+    const bounds = this.pointCloud.bounds;
+    const canvasAspect = this.canvas.width / this.canvas.height;
+    const contentAspect = bounds.width / bounds.height;
+
+    // Leave some margin
+    const margin = 0.85;
+
+    if (contentAspect > canvasAspect) {
+      // Content is wider - fit to width
+      this.scaleX = (2 * margin) / bounds.width;
+      this.scaleY = this.scaleX / canvasAspect;
+    } else {
+      // Content is taller - fit to height
+      this.scaleY = (2 * margin) / bounds.height;
+      this.scaleX = this.scaleY * canvasAspect;
+    }
+
+    // Center the content
+    this.offsetX = -bounds.centerX * this.scaleX;
+    this.offsetY = -bounds.centerY * this.scaleY;
   }
 
   private updateBuffer(): void {
@@ -130,6 +164,7 @@ export class WebGLRenderer {
     this.canvas.width = width;
     this.canvas.height = height;
     this.gl.viewport(0, 0, width, height);
+    this.computeFitToViewport();
   }
 
   render(state: RenderState): void {
@@ -151,6 +186,7 @@ export class WebGLRenderer {
     gl.uniform1f(this.uContrast, state.contrast);
     gl.uniform1f(this.uPointSize, state.pointSize);
     gl.uniform2f(this.uResolution, this.canvas.width, this.canvas.height);
+    gl.uniform4f(this.uTransform, this.scaleX, this.scaleY, this.offsetX, this.offsetY);
     
     // Draw points
     gl.drawArrays(gl.POINTS, 0, this.pointCloud.particleCount);
