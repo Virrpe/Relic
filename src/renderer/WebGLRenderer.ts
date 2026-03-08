@@ -131,7 +131,6 @@ export class WebGLRenderer {
     if (!this.pointCloud || !this.canvas) return;
 
     const bounds = this.pointCloud.bounds;
-    const canvasAspect = this.canvas.width / this.canvas.height;
 
     // Handle empty bounds
     if (bounds.width === 0 || bounds.height === 0) {
