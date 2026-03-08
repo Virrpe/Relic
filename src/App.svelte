@@ -379,11 +379,13 @@
     justify-content: center;
     background: #0a0a0f;
     padding: 20px;
+    min-height: 300px;
   }
   
   .canvas-container canvas {
-    max-width: 100%;
-    max-height: 100%;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     border: 1px solid #222;
   }
   
@@ -396,6 +398,26 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
+  }
+
+  /* Mobile responsive - stack vertically */
+  @media (max-width: 768px) {
+    .app {
+      flex-direction: column;
+    }
+    
+    .canvas-container {
+      flex: none;
+      height: 50vh;
+      min-height: 250px;
+    }
+    
+    .controls {
+      width: 100%;
+      border-left: none;
+      border-top: 1px solid #222;
+      max-height: 50vh;
+    }
   }
   
   .control-header {

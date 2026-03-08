@@ -132,20 +132,27 @@ export class WebGLRenderer {
 
     const bounds = this.pointCloud.bounds;
     const canvasAspect = this.canvas.width / this.canvas.height;
-    const contentAspect = bounds.width / bounds.height;
+
+    // Handle empty bounds
+    if (bounds.width === 0 || bounds.height === 0) {
+      this.scaleX = 1;
+      this.scaleY = 1;
+      this.offsetX = 0;
+      this.offsetY = 0;
+      return;
+    }
 
     // Leave some margin
     const margin = 0.85;
 
-    if (contentAspect > canvasAspect) {
-      // Content is wider - fit to width
-      this.scaleX = (2 * margin) / bounds.width;
-      this.scaleY = this.scaleX / canvasAspect;
-    } else {
-      // Content is taller - fit to height
-      this.scaleY = (2 * margin) / bounds.height;
-      this.scaleX = this.scaleY * canvasAspect;
-    }
+    // Compute scales to fit width and height
+    const scaleToFitWidth = (2 * margin) / bounds.width;
+    const scaleToFitHeight = (2 * margin) / bounds.height;
+
+    // Use uniform scaling (smaller of the two) to fit content
+    const scale = Math.min(scaleToFitWidth, scaleToFitHeight);
+    this.scaleX = scale;
+    this.scaleY = scale;
 
     // Center the content
     this.offsetX = -bounds.centerX * this.scaleX;
