@@ -318,62 +318,74 @@ interface SkullAnchor {
 
 function detectSkullAnchors(maps: MotifMaps): SkullAnchor[] {
   const anchors: SkullAnchor[] = [];
-  const { width, height, edge, structural } = maps;
+  const { width, height, edge, structural, protectedZones } = maps;
   
-  // Eye sockets (dark regions in center of skull)
-  const socketRegions = [
-    { cx: 0.35, cy: 0.45, r: 0.08 },
-    { cx: 0.65, cy: 0.45, r: 0.08 }
+  // First, add anchors from protected zones (already defined anatomically)
+  for (const zone of protectedZones) {
+    anchors.push({
+      x: zone.x,
+      y: zone.y,
+      radius: zone.radius,
+      strength: zone.type === 'void' ? 0.3 : 1.0 // voids get lower strength (they're holes)
+    });
+  }
+  
+  // Also add explicit anatomical anchors that should always be emphasized
+  // These are positions where we WANT strong structure regardless of edge detection
+  const anatomicalAnchors = [
+    // Brow ridge - horizontal band above eyes (HIGH structure)
+    { cx: 0.5, cy: 0.32, r: 0.15, strength: 1.5 },
+    // Cheekbone arcs (HIGH structure)
+    { cx: 0.28, cy: 0.4, r: 0.08, strength: 1.3 },
+    { cx: 0.72, cy: 0.4, r: 0.08, strength: 1.3 },
+    // Upper teeth row (HIGH structure)
+    { cx: 0.5, cy: 0.22, r: 0.12, strength: 1.4 },
+    // Jaw corners (HIGH structure)
+    { cx: 0.32, cy: 0.15, r: 0.06, strength: 1.2 },
+    { cx: 0.68, cy: 0.15, r: 0.06, strength: 1.2 },
+    // Jaw outline (HIGH structure)
+    { cx: 0.5, cy: 0.12, r: 0.18, strength: 1.0 },
+    // Eye socket rims (edge emphasis)
+    { cx: 0.35, cy: 0.45, r: 0.1, strength: 1.2 },
+    { cx: 0.65, cy: 0.45, r: 0.1, strength: 1.2 },
+    // Nasal cavity edges
+    { cx: 0.5, cy: 0.38, r: 0.08, strength: 1.1 },
+    // Temple regions
+    { cx: 0.2, cy: 0.35, r: 0.08, strength: 0.8 },
+    { cx: 0.8, cy: 0.35, r: 0.08, strength: 0.8 },
+    // Forehead
+    { cx: 0.5, cy: 0.55, r: 0.12, strength: 0.7 },
+    // Cranium top edges
+    { cx: 0.35, cy: 0.7, r: 0.08, strength: 0.6 },
+    { cx: 0.65, cy: 0.7, r: 0.08, strength: 0.6 },
   ];
   
-  // Nasal cavity
-  const nasalRegion = { cx: 0.5, cy: 0.38, r: 0.06 };
-  
-  // Brow ridge (horizontal band above eyes)
-  const browRegion = { cx: 0.5, cy: 0.32, r: 0.12 };
-  
-  // Cheekbones
-  const cheekRegions = [
-    { cx: 0.28, cy: 0.4, r: 0.07 },
-    { cx: 0.72, cy: 0.4, r: 0.07 }
-  ];
-  
-  // Upper teeth row
-  const teethRegion = { cx: 0.5, cy: 0.24, r: 0.15 };
-  
-  // Jaw corners
-  const jawRegions = [
-    { cx: 0.32, cy: 0.18, r: 0.05 },
-    { cx: 0.68, cy: 0.18, r: 0.05 }
-  ];
-  
-  const allRegions = [...socketRegions, nasalRegion, browRegion, ...cheekRegions, teethRegion, ...jawRegions];
-  
-  for (const region of allRegions) {
-    // Check if there's actual content in this region (edge or structure)
-    let hasContent = false;
-    let maxEdge = 0;
+  for (const anchor of anatomicalAnchors) {
+    // Check local edge/structure for additional boost
+    let localEdge = 0;
+    let localStructure = 0;
     
-    for (let dy = -Math.floor(region.r * height); dy <= Math.floor(region.r * height); dy++) {
-      for (let dx = -Math.floor(region.r * width); dx <= Math.floor(region.r * width); dx++) {
-        const px = Math.floor(region.cx * width + dx);
-        const py = Math.floor(region.cy * height + dy);
+    for (let dy = -Math.floor(anchor.r * height); dy <= Math.floor(anchor.r * height); dy++) {
+      for (let dx = -Math.floor(anchor.r * width); dx <= Math.floor(anchor.r * width); dx++) {
+        const px = Math.floor(anchor.cx * width + dx);
+        const py = Math.floor(anchor.cy * height + dy);
         if (px >= 0 && px < width && py >= 0 && py < height) {
           const idx = py * width + px;
-          if (edge[idx] > maxEdge) maxEdge = edge[idx];
-          if (structural[idx] > 0.2) hasContent = true;
+          localEdge = Math.max(localEdge, edge[idx]);
+          localStructure = Math.max(localStructure, structural[idx]);
         }
       }
     }
     
-    if (hasContent || maxEdge > 0.2) {
-      anchors.push({
-        x: region.cx,
-        y: region.cy,
-        radius: region.r,
-        strength: hasContent ? 1.0 : maxEdge
-      });
-    }
+    // Combine anatomical priority with detected edge/structure
+    const combinedStrength = anchor.strength + localEdge * 0.5 + localStructure * 0.3;
+    
+    anchors.push({
+      x: anchor.cx,
+      y: anchor.cy,
+      radius: anchor.r,
+      strength: combinedStrength
+    });
   }
   
   return anchors;
@@ -387,11 +399,12 @@ function getAnchorBoost(jx: number, jy: number, anchors: SkullAnchor[]): number 
     const dy = jy - anchor.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < anchor.radius) {
-      const factor = 1 - dist / anchor.radius;
+      // Strong falloff for precise anchoring
+      const factor = Math.pow(1 - dist / anchor.radius, 0.5);
       maxBoost = Math.max(maxBoost, factor * anchor.strength);
     }
   }
-  return maxBoost * 0.8; // Max 80% boost
+  return Math.min(1.5, maxBoost); // Max 150% boost for strong emphasis
 }
 
 // Select mark type based on layer and random
