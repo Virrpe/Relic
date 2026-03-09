@@ -9,6 +9,7 @@ export class WebGLRenderer {
   private program: WebGLProgram | null = null;
   private vao: WebGLVertexArrayObject | null = null;
   private buffer: WebGLBuffer | null = null;
+  private layerBuffer: WebGLBuffer | null = null; // For layerType attribute
   private pointCloud: PointCloud | null = null;
   private animationId: number | null = null;
   private startTime: number = 0;
@@ -86,14 +87,25 @@ export class WebGLRenderer {
     this.vao = gl.createVertexArray();
     gl.bindVertexArray(this.vao);
     
-    // Create buffer
+    // Create buffer for point data (x, y, weight, seed)
     this.buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     
-    // Point attribute (x, y, weight, seed)
+    // Point attribute (x, y, weight, seed) - 4 floats, stride 0 (interleaved)
     const loc = gl.getAttribLocation(this.program, 'aPoint');
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 0, 0);
+    
+    // Create separate buffer for layerType (5th float)
+    this.layerBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.layerBuffer);
+    
+    // Layer type attribute - 1 float per point
+    const layerLoc = gl.getAttribLocation(this.program, 'aLayerType');
+    if (layerLoc >= 0) {
+      gl.enableVertexAttribArray(layerLoc);
+      gl.vertexAttribPointer(layerLoc, 1, gl.FLOAT, false, 0, 0);
+    }
     
     gl.bindVertexArray(null);
     
@@ -159,11 +171,42 @@ export class WebGLRenderer {
   }
 
   private updateBuffer(): void {
-    if (!this.pointCloud || !this.buffer) return;
+    if (!this.pointCloud || !this.buffer || !this.layerBuffer) return;
     
     const gl = this.gl;
+    const buffer = this.pointCloud.buffer;
+    const count = this.pointCloud.particleCount;
+    
+    // Handle empty point cloud
+    if (count === 0) {
+      return;
+    }
+    
+    // Extract point data (x, y, weight, seed) - first 4 floats per point
+    const pointData = new Float32Array(count * 4);
+    const layerData = new Float32Array(count);
+    
+    for (let i = 0; i < count; i++) {
+      const srcOffset = i * 5;
+      const dstOffset = i * 4;
+      
+      // Copy first 4 floats
+      pointData[dstOffset] = buffer[srcOffset];
+      pointData[dstOffset + 1] = buffer[srcOffset + 1];
+      pointData[dstOffset + 2] = buffer[srcOffset + 2];
+      pointData[dstOffset + 3] = buffer[srcOffset + 3];
+      
+      // Extract layer type (5th float) - default to 0 if not present
+      layerData[i] = srcOffset + 4 < buffer.length ? buffer[srcOffset + 4] : 0;
+    }
+    
+    // Bind and populate point data buffer
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, this.pointCloud.buffer, gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, pointData, gl.STATIC_DRAW);
+    
+    // Bind and populate layer type buffer
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.layerBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, layerData, gl.STATIC_DRAW);
   }
 
   resize(width: number, height: number): void {
@@ -252,6 +295,7 @@ export class WebGLRenderer {
     
     const gl = this.gl;
     if (this.buffer) gl.deleteBuffer(this.buffer);
+    if (this.layerBuffer) gl.deleteBuffer(this.layerBuffer);
     if (this.vao) gl.deleteVertexArray(this.vao);
     if (this.program) gl.deleteProgram(this.program);
   }

@@ -28,12 +28,16 @@ function computeBounds(buffer: Float32Array, particleCount: number): Bounds {
     return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0, centerX: 0, centerY: 0 };
   }
 
+  // Stride is 5: [x, y, weight, seed, layerType]
+  const stride = 5;
+  
   let minX = Infinity, maxX = -Infinity;
   let minY = Infinity, maxY = -Infinity;
 
   for (let i = 0; i < particleCount; i++) {
-    const x = buffer[i * 4];
-    const y = buffer[i * 4 + 1];
+    const offset = i * stride;
+    const x = buffer[offset];
+    const y = buffer[offset + 1];
     minX = Math.min(minX, x);
     maxX = Math.max(maxX, x);
     minY = Math.min(minY, y);
@@ -53,6 +57,6 @@ function computeBounds(buffer: Float32Array, particleCount: number): Bounds {
 }
 
 export function getStride(): number {
-  // 4 floats per particle: x, y, weight, seed
-  return 4;
+  // 5 floats per particle: x, y, weight, seed, layerType
+  return 5;
 }

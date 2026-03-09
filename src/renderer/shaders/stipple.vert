@@ -1,8 +1,9 @@
 #version 300 es
 precision highp float;
 
-// Point data: x, y, weight, seed
+// Point data: x, y, weight, seed, layerType (5 floats)
 layout(location = 0) in vec4 aPoint;
+layout(location = 1) in float aLayerType;
 
 uniform float uTime;
 uniform float uWind;
@@ -14,6 +15,7 @@ uniform vec4 uTransform; // scaleX, scaleY, offsetX, offsetY
 
 out float vWeight;
 out float vSeed;
+out float vLayerType;
 
 // Simple noise function
 float hash(vec2 p) {
@@ -64,4 +66,5 @@ void main() {
   
   vWeight = aPoint.z;
   vSeed = seed;
+  vLayerType = aLayerType;
 }
