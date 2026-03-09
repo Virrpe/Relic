@@ -4,6 +4,8 @@
 import { generateMapsFromLuminance, type MotifMaps } from './MotifMaps';
 import { type ImageData } from './ImageIngestion';
 import { renderText } from './TextMask';
+import { type MotifPack } from './MotifPack';
+import { type Bounds } from '../pointcloud/PointCloud';
 
 // Preset mask definitions - explicit mask data for each preset
 // These replace procedural guesses with proper SDF-like representations
@@ -229,4 +231,280 @@ export function generateMotifMaps(
     case 'text':
       return generateMapsFromText(source.content, seed);
   }
+}
+
+// Generate MotifMaps from a MotifPack - uses the plates directly
+export function generateMapsFromMotifPack(pack: MotifPack): MotifMaps {
+  const { width, height, alpha } = pack;
+  
+  // Use alpha as the primary structural mask
+  // This represents silhouette/occupancy truth
+  const structural: Float32Array = alpha.data;
+  
+  // Compute edge map from structural (alpha) using Sobel
+  const edge = computeEdgeMapFromGray(structural, width, height);
+  
+  // Compute distance map from structural
+  const distance = computeDistanceMapFromGray(structural, width, height);
+  
+  // Generate protected zones based on structure plate
+  // High structure values indicate areas to preserve
+  const protectedZones = detectProtectedZonesFromStructure(structural, width, height);
+  
+  const bounds = computeBoundsFromLuminance(structural, width, height);
+  
+  return {
+    structural,
+    edge,
+    distance,
+    protectedZones,
+    width,
+    height,
+    bounds
+  };
+}
+
+// Compute edge map from grayscale data using Sobel
+function computeEdgeMapFromGray(data: Float32Array, width: number, height: number): Float32Array {
+  const edge = new Float32Array(width * height);
+  
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const idx = y * width + x;
+      
+      // Sobel kernels
+      const gx = 
+        -data[(y - 1) * width + (x - 1)] + data[(y - 1) * width + (x + 1)] +
+        -2 * data[y * width + (x - 1)] + 2 * data[y * width + (x + 1)] +
+        -data[(y + 1) * width + (x - 1)] + data[(y + 1) * width + (x + 1)];
+        
+      const gy = 
+        -data[(y - 1) * width + (x - 1)] - 2 * data[(y - 1) * width + x] - data[(y - 1) * width + (x + 1)] +
+        data[(y + 1) * width + (x - 1)] + 2 * data[(y + 1) * width + x] + data[(y + 1) * width + (x + 1)];
+      
+      edge[idx] = Math.sqrt(gx * gx + gy * gy);
+    }
+  }
+  
+  // Normalize
+  let maxEdge = 0;
+  for (let i = 0; i < edge.length; i++) {
+    if (edge[i] > maxEdge) maxEdge = edge[i];
+  }
+  
+  if (maxEdge > 0) {
+    for (let i = 0; i < edge.length; i++) {
+      edge[i] /= maxEdge;
+    }
+  }
+  
+  return edge;
+}
+
+// Compute distance map from grayscale data
+function computeDistanceMapFromGray(data: Float32Array, width: number, height: number): Float32Array {
+  const distance = new Float32Array(width * height);
+  
+  // Threshold for inside/outside
+  const threshold = 0.15;
+  
+  // Simple distance transform - approximation
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      const inside = data[idx] > threshold;
+      
+      if (inside) {
+        // Inside - find distance to nearest edge
+        let minDist = Infinity;
+        
+        // Scan outward from this point to find edge
+        for (let r = 1; r < Math.max(width, height); r++) {
+          let foundEdge = false;
+          
+          for (let dy = -r; dy <= r && !foundEdge; dy++) {
+            for (let dx = -r; dx <= r && !foundEdge; dx++) {
+              if (Math.abs(dx) === r || Math.abs(dy) === r) {
+                const nx = x + dx;
+                const ny = y + dy;
+                
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                  const nidx = ny * width + nx;
+                  if (data[nidx] <= threshold) {
+                    minDist = r;
+                    foundEdge = true;
+                  }
+                }
+              }
+            }
+          }
+          
+          if (foundEdge) break;
+        }
+        
+        distance[idx] = minDist === Infinity ? 1 : -minDist / Math.max(width, height);
+      } else {
+        // Outside - find distance to nearest inside
+        let minDist = Infinity;
+        
+        for (let r = 1; r < Math.max(width, height); r++) {
+          let foundInside = false;
+          
+          for (let dy = -r; dy <= r && !foundInside; dy++) {
+            for (let dx = -r; dx <= r && !foundInside; dx++) {
+              if (Math.abs(dx) === r || Math.abs(dy) === r) {
+                const nx = x + dx;
+                const ny = y + dy;
+                
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                  const nidx = ny * width + nx;
+                  if (data[nidx] > threshold) {
+                    minDist = r;
+                    foundInside = true;
+                  }
+                }
+              }
+            }
+          }
+          
+          if (foundInside) break;
+        }
+        
+        distance[idx] = minDist === Infinity ? 1 : minDist / Math.max(width, height);
+      }
+    }
+  }
+  
+  // Normalize to -1..1
+  let maxDist = 0;
+  for (let i = 0; i < distance.length; i++) {
+    if (Math.abs(distance[i]) > maxDist) maxDist = Math.abs(distance[i]);
+  }
+  
+  if (maxDist > 0) {
+    for (let i = 0; i < distance.length; i++) {
+      distance[i] /= maxDist;
+    }
+  }
+  
+  return distance;
+}
+
+// Detect protected zones from structure plate
+function detectProtectedZonesFromStructure(
+  structure: Float32Array, 
+  width: number, 
+  height: number
+): Array<{ x: number; y: number; radius: number; type: 'void' | 'critical' | 'structural' }> {
+  const zones: Array<{ x: number; y: number; radius: number; type: 'void' | 'critical' | 'structural' }> = [];
+  
+  // Find high-structure regions as protected zones
+  // Threshold for structural preservation
+  const highStructureThreshold = 0.7;
+  
+  // Scan for high-structure regions (structural)
+  const visited = new Set<number>();
+  
+  for (let y = 10; y < height - 10; y += 10) {
+    for (let x = 10; x < width - 10; x += 10) {
+      const idx = y * width + x;
+      if (visited.has(idx)) continue;
+      
+      if (structure[idx] > highStructureThreshold) {
+        // Found a high-structure region, do flood fill to find its extent
+        const region: number[] = [];
+        const queue = [idx];
+        visited.add(idx);
+        
+        while (queue.length > 0 && region.length < 50) {
+          const current = queue.shift()!;
+          region.push(current);
+          
+          // Check neighbors
+          const neighbors = [
+            current - 1, current + 1,
+            current - width, current + width
+          ];
+          
+          for (const n of neighbors) {
+            if (n >= 0 && n < width * height && !visited.has(n)) {
+              if (structure[n] > highStructureThreshold) {
+                visited.add(n);
+                queue.push(n);
+              }
+            }
+          }
+        }
+        
+        // Calculate center and radius
+        if (region.length > 5) {
+          let sumX = 0, sumY = 0;
+          for (const pixelIdx of region) {
+            sumX += pixelIdx % width;
+            sumY += Math.floor(pixelIdx / width);
+          }
+          
+          const centerX = sumX / region.length / width;
+          const centerY = sumY / region.length / height;
+          
+          // Estimate radius from area
+          const radius = Math.sqrt(region.length / (width * height)) * 0.5;
+          
+          if (radius > 0.02) {
+            zones.push({
+              x: centerX,
+              y: centerY,
+              radius: Math.min(radius, 0.15),
+              type: 'structural'
+            });
+          }
+        }
+      }
+    }
+  }
+  
+  return zones;
+}
+
+// Compute bounds from luminance data
+function computeBoundsFromLuminance(
+  luminance: Float32Array, 
+  width: number, 
+  height: number
+): Bounds {
+  const threshold = 0.1;
+  
+  let minX = width, maxX = 0;
+  let minY = height, maxY = 0;
+  
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (luminance[idx] > threshold) {
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+  
+  // Default bounds if nothing found
+  if (minX > maxX) {
+    return { minX: 0, maxX: width - 1, minY: 0, maxY: height - 1, width: width, height: height, centerX: 0.5, centerY: 0.5 };
+  }
+  
+  const boundsWidth = maxX - minX;
+  const boundsHeight = maxY - minY;
+  
+  return { 
+    minX, 
+    maxX, 
+    minY, 
+    maxY,
+    width: boundsWidth,
+    height: boundsHeight,
+    centerX: (minX + maxX) / 2 / width,
+    centerY: (minY + maxY) / 2 / height
+  };
 }

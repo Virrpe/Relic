@@ -4,8 +4,9 @@
   import { generateMotif } from './source/MotifLibrary';
   import { loadImage, generatePointCloudFromImage, type ImageData } from './source/ImageIngestion';
   import { renderText, generatePointCloudFromText, type TextData } from './source/TextMask';
-  import { generateMotifMaps, generateMapsFromPreset } from './source/MotifProcessor';
-  import { generateDualFieldPointCloud, DEFAULT_DUAL_FIELD_CONFIG, type DualFieldConfig } from './pointcloud/DualFieldPointCloud';
+  import { generateMapsFromPreset, generateMapsFromMotifPack } from './source/MotifProcessor';
+  import { generateDualFieldPointCloud, type DualFieldConfig } from './pointcloud/DualFieldPointCloud';
+  import { loadMotifPack, loadGrayImage, type MotifPack, type PlateUploadSlots, type DiagnosticView, createEmptyPlateSlots, createPreviewCanvas } from './source/MotifPack';
   import { DEFAULT_RENDER_STATE, type RenderState } from './state/RenderState';
   import { PRESETS, getPreset } from './presets/index';
 
@@ -25,8 +26,15 @@
   let currentText: TextData | null = null;
   let textInput = 'RELIC';
 
+  // Motif pack data
+  let currentMotifPack: MotifPack | null = null;
+  let isLoadingMotifPack = false;
+  let motifPackError: string | null = null;
+  let plateSlots: PlateUploadSlots = createEmptyPlateSlots();
+  let diagnosticView: DiagnosticView = 'full';
+  let previewCanvases: Record<string, HTMLCanvasElement> = {};
+
   // Dual field config
-  let dualFieldConfig: DualFieldConfig = { ...DEFAULT_DUAL_FIELD_CONFIG };
   let useDualField = false;
 
   // Quality tiers for density mapping
@@ -56,6 +64,12 @@
         luminance = currentText.luminance;
         width = currentText.width;
         height = currentText.height;
+      } else if (state.sourceMode === 'motif-pack' && currentMotifPack) {
+        // Use motif pack - generate maps from pack plates
+        const maps = generateMapsFromMotifPack(currentMotifPack);
+        luminance = maps.structural;
+        width = maps.width;
+        height = maps.height;
       } else {
         // Generate from preset
         const maps = generateMapsFromPreset(state.presetId, state.seed);
@@ -90,18 +104,28 @@
     renderer.setPointCloud(cloud);
   }
 
-  function handleModeChange(mode: 'motif' | 'image' | 'text') {
+  function handleModeChange(mode: 'motif' | 'image' | 'text' | 'motif-pack') {
     state.sourceMode = mode;
     if (mode === 'motif') {
       currentImage = null;
       currentText = null;
+      currentMotifPack = null;
     } else if (mode === 'image') {
       currentText = null;
+      currentMotifPack = null;
     } else if (mode === 'text') {
       currentImage = null;
+      currentMotifPack = null;
       if (!currentText) {
         // Generate default text
         currentText = renderText(textInput);
+      }
+    } else if (mode === 'motif-pack') {
+      currentImage = null;
+      currentText = null;
+      // If no pack loaded, don't regenerate yet
+      if (!currentMotifPack) {
+        return;
       }
     }
     regenerateCloud();
@@ -137,6 +161,69 @@
     } finally {
       isLoadingImage = false;
     }
+  }
+
+  // Handle motif pack plate upload
+  async function handlePlateUpload(plateType: keyof PlateUploadSlots, e: Event) {
+    const target = e.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
+      motifPackError = `Invalid file type for ${plateType}. Use JPG, PNG, or WebP.`;
+      return;
+    }
+    
+    // Store the file
+    plateSlots[plateType] = file;
+    plateSlots = plateSlots; // Trigger reactivity
+    
+    // Update preview
+    try {
+      const grayImage = await loadGrayImage(file);
+      previewCanvases[plateType] = createPreviewCanvas(grayImage);
+      previewCanvases = previewCanvases;
+    } catch (err) {
+      console.error(`Failed to preview ${plateType}:`, err);
+    }
+    
+    motifPackError = null;
+    
+    // Try to load complete pack if all required plates are present
+    await tryLoadMotifPack();
+  }
+
+  async function tryLoadMotifPack() {
+    const requiredPlates: (keyof PlateUploadSlots)[] = ['alpha', 'structure', 'tone'];
+    const hasAllRequired = requiredPlates.every(plate => plateSlots[plate] !== null);
+    
+    if (!hasAllRequired) {
+      return;
+    }
+    
+    isLoadingMotifPack = true;
+    motifPackError = null;
+    
+    try {
+      currentMotifPack = await loadMotifPack(plateSlots);
+      state.sourceMode = 'motif-pack';
+      regenerateCloud();
+    } catch (err) {
+      motifPackError = err instanceof Error ? err.message : 'Failed to load motif pack';
+      console.error('Failed to load motif pack:', err);
+    } finally {
+      isLoadingMotifPack = false;
+    }
+  }
+
+  function clearMotifPack() {
+    currentMotifPack = null;
+    plateSlots = createEmptyPlateSlots();
+    previewCanvases = {};
+    motifPackError = null;
+    state.sourceMode = 'motif';
+    regenerateCloud();
   }
 
   function handlePresetChange(e: Event) {
@@ -255,6 +342,10 @@
             class:active={state.sourceMode === 'text'}
             on:click={() => handleModeChange('text')}
           >Text</button>
+          <button 
+            class:active={state.sourceMode === 'motif-pack'}
+            on:click={() => handleModeChange('motif-pack')}
+          >Pack</button>
         </div>
       </label>
       
@@ -297,6 +388,109 @@
             {/each}
           </select>
         </label>
+      {/if}
+      
+      {#if state.sourceMode === 'motif-pack'}
+        <div class="motif-pack-upload">
+          <span>Plate Uploads (Required: alpha, structure, tone)</span>
+          
+          {#if motifPackError}
+            <span class="error">{motifPackError}</span>
+          {/if}
+          
+          {#if isLoadingMotifPack}
+            <span class="loading">Loading motif pack...</span>
+          {/if}
+          
+          <label class="plate-upload">
+            <span>Alpha (silhouette) *</span>
+            <input 
+              type="file" 
+              accept="image/jpeg,image/png,image/webp"
+              on:change={(e) => handlePlateUpload('alpha', e)}
+            />
+            {#if previewCanvases.alpha}
+              <img src={previewCanvases.alpha.toDataURL()} alt="alpha preview" class="preview-thumb" />
+            {:else if plateSlots.alpha}
+              <span class="loaded">File selected</span>
+            {/if}
+          </label>
+          
+          <label class="plate-upload">
+            <span>Structure (preservation) *</span>
+            <input 
+              type="file" 
+              accept="image/jpeg,image/png,image/webp"
+              on:change={(e) => handlePlateUpload('structure', e)}
+            />
+            {#if previewCanvases.structure}
+              <img src={previewCanvases.structure.toDataURL()} alt="structure preview" class="preview-thumb" />
+            {:else if plateSlots.structure}
+              <span class="loaded">File selected</span>
+            {/if}
+          </label>
+          
+          <label class="plate-upload">
+            <span>Tone (density) *</span>
+            <input 
+              type="file" 
+              accept="image/jpeg,image/png,image/webp"
+              on:change={(e) => handlePlateUpload('tone', e)}
+            />
+            {#if previewCanvases.tone}
+              <img src={previewCanvases.tone.toDataURL()} alt="tone preview" class="preview-thumb" />
+            {:else if plateSlots.tone}
+              <span class="loaded">File selected</span>
+            {/if}
+          </label>
+          
+          <label class="plate-upload optional">
+            <span>Accent (highlights) - Optional</span>
+            <input 
+              type="file" 
+              accept="image/jpeg,image/png,image/webp"
+              on:change={(e) => handlePlateUpload('accent', e)}
+            />
+            {#if previewCanvases.accent}
+              <img src={previewCanvases.accent.toDataURL()} alt="accent preview" class="preview-thumb" />
+            {:else if plateSlots.accent}
+              <span class="loaded">File selected</span>
+            {/if}
+          </label>
+          
+          <label class="plate-upload optional">
+            <span>Atmo (atmosphere) - Optional</span>
+            <input 
+              type="file" 
+              accept="image/jpeg,image/png,image/webp"
+              on:change={(e) => handlePlateUpload('atmo', e)}
+            />
+            {#if previewCanvases.atmo}
+              <img src={previewCanvases.atmo.toDataURL()} alt="atmo preview" class="preview-thumb" />
+            {:else if plateSlots.atmo}
+              <span class="loaded">File selected</span>
+            {/if}
+          </label>
+          
+          {#if currentMotifPack}
+            <span class="loaded">Motif Pack loaded ({currentMotifPack.width}x{currentMotifPack.height})</span>
+            <button class="clear-btn" on:click={clearMotifPack}>Clear Pack</button>
+            
+            <label>
+              <span>Diagnostic View</span>
+              <select bind:value={diagnosticView}>
+                <option value="full">Full Stack</option>
+                <option value="alpha">Alpha Only</option>
+                <option value="structure">Structure Only</option>
+                <option value="tone">Tone Only</option>
+                <option value="accent">Accent Only</option>
+                <option value="atmo">Atmo Only</option>
+                <option value="alpha-structure">Alpha + Structure</option>
+                <option value="alpha-structure-tone">Alpha + Structure + Tone</option>
+              </select>
+            </label>
+          {/if}
+        </div>
       {/if}
       
       <label>
@@ -751,5 +945,81 @@
   input[type="text"]:focus {
     outline: none;
     border-color: #555;
+  }
+
+  /* Motif Pack Upload Styles */
+  .motif-pack-upload {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+  }
+
+  .motif-pack-upload > span:first-child {
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 4px;
+  }
+
+  .plate-upload {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+  }
+
+  .plate-upload > span {
+    flex: 0 0 120px;
+    font-size: 11px;
+    color: #aaa;
+  }
+
+  .plate-upload input[type="file"] {
+    flex: 1;
+  }
+
+  .plate-upload.optional {
+    opacity: 0.7;
+  }
+
+  .plate-upload.optional > span {
+    color: #777;
+  }
+
+  .preview-thumb {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    border: 1px solid #444;
+    background: #000;
+  }
+
+  .clear-btn {
+    padding: 8px 12px;
+    background: #2a1a1a;
+    border: 1px solid #443;
+    color: #d88;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 8px;
+  }
+
+  .clear-btn:hover {
+    background: #3a2a2a;
+    border-color: #664;
+  }
+
+  .error {
+    font-size: 11px;
+    color: #d44;
+    padding: 4px 8px;
+    background: #2a1a1a;
+    border-radius: 2px;
   }
 </style>
