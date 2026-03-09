@@ -2,6 +2,7 @@
 // Renders by sampling field textures instead of point clouds
 
 import { FieldTextureManager, FIELD_INDICES, MAX_FIELD_SIZE } from '../field/FieldTextureManager';
+import { ParticleOverlay } from '../field/ParticleOverlay';
 import type { RenderState } from '../state/RenderState';
 import fieldRenderVert from './shaders/field-render.vert?raw';
 import fieldRenderFrag from './shaders/field-render.frag?raw';
@@ -64,6 +65,10 @@ export class FieldRenderer {
   // Erosion parameters
   private erosionAmount: number = 0;
   private erosionSeed: number = 0;
+  
+  // Phase 5: Particle overlay
+  private particleOverlay: ParticleOverlay | null = null;
+  private particleOpacity: number = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -136,11 +141,14 @@ export class FieldRenderer {
     this.uFieldGlitchBlockSize = gl.getUniformLocation(this.program, 'uFieldGlitchBlockSize');
     this.uFieldGlitchSpeed = gl.getUniformLocation(this.program, 'uFieldGlitchSpeed');
     
-    // Create full-screenErosionSeed = quad VAO
+    // Create full-screen quad VAO
     this.createFullScreenQuad();
     
     // Create texture manager
     this.textureManager = new FieldTextureManager(gl);
+    
+    // Create particle overlay
+    this.particleOverlay = new ParticleOverlay(gl);
     
     // Set clear color
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -217,6 +225,20 @@ export class FieldRenderer {
     this.erosionAmount = amount;
     this.erosionSeed = seed;
   }
+  
+  // Set particle overlay parameters
+  setParticleOpacity(opacity: number): void {
+    this.particleOpacity = opacity;
+    if (this.particleOverlay) {
+      this.particleOverlay.setOpacity(opacity);
+    }
+  }
+  
+  setParticleType(type: 'ash' | 'debris' | 'dust' | 'mixed'): void {
+    if (this.particleOverlay) {
+      this.particleOverlay.setType(type);
+    }
+  }
 
   // Render a frame
   render(state: RenderState, time: number): void {
@@ -292,6 +314,11 @@ export class FieldRenderer {
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.bindVertexArray(null);
+    
+    // Phase 5: Render particle overlay
+    if (this.particleOverlay && this.particleOpacity > 0) {
+      this.particleOverlay.render(state, time);
+    }
   }
 
   // Resize handler

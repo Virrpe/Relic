@@ -46,6 +46,11 @@ export interface RenderState {
   fieldGlitchBlockSize: number; // row/block height for corruption
   fieldGlitchSpeed: number;     // animation speed
   
+  // Particle overlay parameters (Phase 5)
+  fieldParticleEnabled: boolean;
+  fieldParticleOpacity: number;  // 0-1
+  fieldParticleType: 'ash' | 'debris' | 'dust' | 'mixed';
+  
   // Loop mode
   loopEnabled: boolean;
   loopDuration: number;     // seconds
@@ -98,6 +103,11 @@ export const DEFAULT_RENDER_STATE: RenderState = {
   fieldGlitchIntensity: 0.3,
   fieldGlitchBlockSize: 10,
   fieldGlitchSpeed: 1.0,
+  
+  // Particle overlay defaults (Phase 5)
+  fieldParticleEnabled: false,
+  fieldParticleOpacity: 0.5,
+  fieldParticleType: 'ash',
   
   // Loop mode defaults
   loopEnabled: false,
