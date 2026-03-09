@@ -122,10 +122,12 @@ export function generateDualFieldPointCloudFromMotifPack(
   
   const { width, height, structural: structMap, edge: edgeMap, distance: distMap, alpha, structure: structPlate, tone: tonePlate, accent: accentPlate, atmo: atmoPlate } = maps;
   
-  // Calculate grid size based on density - MUCH HIGHER for maximum detail
-  // Even higher base and max for much finer detail
+  // Calculate grid size based on density AND image resolution
+  // Much higher for maximum detail - proportional to image size
+  const minDim = Math.min(width, height);
+  const resolutionBasedGrid = Math.floor(minDim * (0.4 + cfg.density * 0.6));
   const baseGrid = Math.floor(150 + cfg.density * 400);
-  const gridSize = Math.min(baseGrid, 600);
+  const gridSize = Math.max(resolutionBasedGrid, Math.min(baseGrid, 600));
   
   // Collect points for each population
   const structuralPts: number[] = [];
@@ -177,9 +179,10 @@ export function generateDualFieldPointCloudFromMotifPack(
       
       // === STRUCTURAL POINTS (driven by structure plate) ===
       // Must be inside alpha, driven by structure values
-      // MUCH higher inclusion for maximum detail
+      // MUCH higher inclusion for maximum detail - boost for motif-pack
+      const motifPackBoost = 2.5; // Extra boost for motif-pack mode
       if (insideAlpha && structVal > 0.02) {
-        const inclusionChance = structVal * cfg.density * 3.5 + 0.15;
+        const inclusionChance = structVal * cfg.density * 3.5 * motifPackBoost + 0.15;
         if (random() < inclusionChance) {
           // Much less jitter for more precise detail
           const px = nx + (random() - 0.5) * 0.004;
@@ -193,7 +196,7 @@ export function generateDualFieldPointCloudFromMotifPack(
       // Must be inside alpha, driven by tone values - gives dirty tonal mass
       // MUCH higher inclusion for maximum detail
       if (insideAlpha && toneVal > 0.01) {
-        const inclusionChance = toneVal * cfg.density * 3.0 + 0.1;
+        const inclusionChance = toneVal * cfg.density * 3.0 * motifPackBoost + 0.1;
         if (random() < inclusionChance) {
           const px = nx + (random() - 0.5) * 0.006;
           const py = ny + (random() - 0.5) * 0.006;
@@ -206,7 +209,7 @@ export function generateDualFieldPointCloudFromMotifPack(
       // Sparse, inside alpha, driven by accent values - focal highlights
       // Higher inclusion for more detail
       if (insideAlpha && accentVal > 0.02) {
-        const inclusionChance = accentVal * cfg.density * 1.2 + 0.03;
+        const inclusionChance = accentVal * cfg.density * 1.2 * motifPackBoost + 0.03;
         if (random() < inclusionChance) {
           const px = nx + (random() - 0.5) * 0.003;
           const py = ny + (random() - 0.5) * 0.003;
@@ -219,7 +222,7 @@ export function generateDualFieldPointCloudFromMotifPack(
       // === ATMOSPHERE POINTS (driven by atmo plate) ===
       // Can be outside alpha, driven by atmo values - peripheral debris
       // Also generate some at edge spillover
-      let atmoChance = atmoVal * cfg.density * 1.0 + 0.05;
+      let atmoChance = atmoVal * cfg.density * 1.0 * motifPackBoost + 0.05;
       
       // Add edge spillover - atmosphere near alpha boundary
       if (!insideAlpha && Math.abs(distVal) < 0.15) {
