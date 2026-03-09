@@ -51,21 +51,10 @@
     
     let cloud;
     if (useDualField) {
-      // Use dual-field rendering
-      let luminance: Float32Array;
-      let width: number;
-      let height: number;
-      
-      if (state.sourceMode === 'image' && currentImage) {
-        luminance = currentImage.luminance;
-        width = currentImage.width;
-        height = currentImage.height;
-      } else if (state.sourceMode === 'text' && currentText) {
-        luminance = currentText.luminance;
-        width = currentText.width;
-        height = currentText.height;
+      // Use dual-field rendering with four populations
       let maps;
-      let useMapsDirectly = false;
+      
+      if (state.sourceMode === 'motif-pack' && currentMotifPack) {
       
       if (state.sourceMode === 'motif-pack' && currentMotifPack) {
         // Use motif pack - generate maps from pack plates
