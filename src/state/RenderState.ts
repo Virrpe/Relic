@@ -1,6 +1,6 @@
 // Core render state contract
 export interface RenderState {
-  sourceMode: 'image' | 'text' | 'motif';
+  sourceMode: 'image' | 'text' | 'motif' | 'motif-pack';
   presetId: string;
   seed: number;
   density: number;
