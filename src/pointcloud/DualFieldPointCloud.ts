@@ -122,9 +122,10 @@ export function generateDualFieldPointCloudFromMotifPack(
   
   const { width, height, structural: structMap, edge: edgeMap, distance: distMap, alpha, structure: structPlate, tone: tonePlate, accent: accentPlate, atmo: atmoPlate } = maps;
   
-  // Calculate grid size based on density
-  const baseGrid = Math.floor(30 + cfg.density * 120);
-  const gridSize = Math.min(baseGrid, 150);
+  // Calculate grid size based on density - INCREASED for more detail
+  // Higher base and higher max for finer detail
+  const baseGrid = Math.floor(60 + cfg.density * 200);
+  const gridSize = Math.min(baseGrid, 300);
   
   // Collect points for each population
   const structuralPts: number[] = [];
@@ -176,11 +177,13 @@ export function generateDualFieldPointCloudFromMotifPack(
       
       // === STRUCTURAL POINTS (driven by structure plate) ===
       // Must be inside alpha, driven by structure values
-      if (insideAlpha && structVal > 0.1) {
-        const inclusionChance = structVal * cfg.density * 0.9 + 0.02;
+      // Higher inclusion for more detail
+      if (insideAlpha && structVal > 0.05) {
+        const inclusionChance = structVal * cfg.density * 1.8 + 0.05;
         if (random() < inclusionChance) {
-          const px = nx + (random() - 0.5) * 0.012;
-          const py = ny + (random() - 0.5) * 0.012;
+          // Less jitter for more precise detail
+          const px = nx + (random() - 0.5) * 0.008;
+          const py = ny + (random() - 0.5) * 0.008;
           const weight = structVal * 0.9 + random() * 0.1;
           structuralPts.push(px, py, weight, random(), LAYER_STRUCTURAL);
         }
@@ -188,11 +191,12 @@ export function generateDualFieldPointCloudFromMotifPack(
       
       // === BODY/TONE POINTS (driven by tone plate) ===
       // Must be inside alpha, driven by tone values - gives dirty tonal mass
-      if (insideAlpha && toneVal > 0.05) {
-        const inclusionChance = toneVal * cfg.density * 0.7 + 0.01;
+      // Higher inclusion for more detail
+      if (insideAlpha && toneVal > 0.03) {
+        const inclusionChance = toneVal * cfg.density * 1.5 + 0.03;
         if (random() < inclusionChance) {
-          const px = nx + (random() - 0.5) * 0.018;
-          const py = ny + (random() - 0.5) * 0.018;
+          const px = nx + (random() - 0.5) * 0.012;
+          const py = ny + (random() - 0.5) * 0.012;
           const weight = toneVal * 0.85 + random() * 0.15;
           bodyPts.push(px, py, weight, random(), LAYER_BODY);
         }
@@ -200,11 +204,12 @@ export function generateDualFieldPointCloudFromMotifPack(
       
       // === ACCENT POINTS (driven by accent plate) ===
       // Sparse, inside alpha, driven by accent values - focal highlights
-      if (insideAlpha && accentVal > 0.1) {
-        const inclusionChance = accentVal * cfg.density * 0.25 + 0.005;
+      // Higher inclusion for more detail
+      if (insideAlpha && accentVal > 0.05) {
+        const inclusionChance = accentVal * cfg.density * 0.6 + 0.01;
         if (random() < inclusionChance) {
-          const px = nx + (random() - 0.5) * 0.008;
-          const py = ny + (random() - 0.5) * 0.008;
+          const px = nx + (random() - 0.5) * 0.006;
+          const py = ny + (random() - 0.5) * 0.006;
           // Accents are brighter
           const weight = Math.min(1, accentVal * 1.2 + 0.3);
           accentPts.push(px, py, weight, random(), LAYER_ACCENT);
@@ -214,16 +219,16 @@ export function generateDualFieldPointCloudFromMotifPack(
       // === ATMOSPHERE POINTS (driven by atmo plate) ===
       // Can be outside alpha, driven by atmo values - peripheral debris
       // Also generate some at edge spillover
-      let atmoChance = atmoVal * cfg.density * 0.4 + 0.01;
+      let atmoChance = atmoVal * cfg.density * 0.6 + 0.02;
       
       // Add edge spillover - atmosphere near alpha boundary
-      if (!insideAlpha && Math.abs(distVal) < 0.08) {
-        atmoChance += (0.08 - Math.abs(distVal)) * 2 * cfg.density * 0.15;
+      if (!insideAlpha && Math.abs(distVal) < 0.1) {
+        atmoChance += (0.1 - Math.abs(distVal)) * 2 * cfg.density * 0.25;
       }
       
       if (atmoChance > 0 && random() < atmoChance) {
-        const px = nx + (random() - 0.5) * 0.025;
-        const py = ny + (random() - 0.5) * 0.025;
+        const px = nx + (random() - 0.5) * 0.02;
+        const py = ny + (random() - 0.5) * 0.02;
         const weight = (atmoVal > 0 ? atmoVal : Math.max(0, 0.3 - Math.abs(distVal) * 3)) * 0.6 + random() * 0.2;
         atmosphericPts.push(px, py, Math.max(0.05, weight), random(), LAYER_ATMOSPHERIC);
       }
