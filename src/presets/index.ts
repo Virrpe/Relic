@@ -10,6 +10,7 @@ export interface Preset {
     erosion?: number;
     brightness?: number;
     contrast?: number;
+    renderMode?: 'static' | 'dynamic';
   };
 }
 
@@ -103,6 +104,35 @@ export const PRESETS: Preset[] = [
       erosion: 0.2,
       brightness: 0.95,
       contrast: 1.05
+    }
+  },
+  // Static mode presets for motif truth verification
+  {
+    id: 'skull_clean',
+    name: 'Skull (Static)',
+    defaultParams: {
+      density: 0.6,
+      pointSize: 2.5,
+      wind: 0,
+      turbulence: 0,
+      erosion: 0,
+      brightness: 1.0,
+      contrast: 1.1,
+      renderMode: 'static'
+    }
+  },
+  {
+    id: 'moth_clean',
+    name: 'Moth (Static)',
+    defaultParams: {
+      density: 0.5,
+      pointSize: 2.0,
+      wind: 0,
+      turbulence: 0,
+      erosion: 0,
+      brightness: 0.95,
+      contrast: 1.0,
+      renderMode: 'static'
     }
   }
 ];

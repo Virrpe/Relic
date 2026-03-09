@@ -12,6 +12,9 @@ uniform vec2 uResolution;
 uniform float uPointSize;
 uniform vec4 uTransform; // scaleX, scaleY, offsetX, offsetY
 
+// Static mode: 1.0 = bypass all effects, 0.0 = normal dynamic rendering
+uniform float uRenderMode;
+
 out float vWeight;
 out float vSeed;
 
@@ -40,20 +43,25 @@ void main() {
   // Base position with seed offset for variation
   float seedOffset = seed * 1000.0;
   
-  // Wind displacement - flows right over time (stronger effect)
-  float windPhase = uTime * 0.5 + seedOffset;
-  float windDisp = sin(windPhase) * uWind * 0.3;
-  pos.x += windDisp;
-  pos.y += cos(windPhase * 0.7) * uWind * 0.15;
-  
-  // Turbulence - chaotic displacement (stronger effect)
-  float turbNoise = noise(pos * 3.0 + uTime * 0.3 + seedOffset);
-  pos += (turbNoise - 0.5) * uTurbulence * 0.4;
-  
-  // Erosion - directional drift (upward, stronger effect)
-  float erosionDrift = uErosion * uTime * 0.2;
-  pos.y += erosionDrift;
-  pos.x += sin(erosionDrift * 5.0 + seedOffset) * uErosion * 0.1;
+  // Static mode bypass: only apply effects when uRenderMode < 0.5 (dynamic mode)
+  // In static mode (uRenderMode >= 0.5): pos stays at original, only transform applied
+  if (uRenderMode < 0.5) {
+    // Wind displacement - flows right over time (stronger effect)
+    float windPhase = uTime * 0.5 + seedOffset;
+    float windDisp = sin(windPhase) * uWind * 0.3;
+    pos.x += windDisp;
+    pos.y += cos(windPhase * 0.7) * uWind * 0.15;
+    
+    // Turbulence - chaotic displacement (stronger effect)
+    float turbNoise = noise(pos * 3.0 + uTime * 0.3 + seedOffset);
+    pos += (turbNoise - 0.5) * uTurbulence * 0.4;
+    
+    // Erosion - directional drift (upward, stronger effect)
+    float erosionDrift = uErosion * uTime * 0.2;
+    pos.y += erosionDrift;
+    pos.x += sin(erosionDrift * 5.0 + seedOffset) * uErosion * 0.1;
+  }
+  // In static mode: pos stays at original position, no effects applied
   
   // Apply fit-to-viewport transform (flip Y for canvas coordinates)
   pos = pos * vec2(uTransform.x, -uTransform.y) + vec2(uTransform.z, -uTransform.w);

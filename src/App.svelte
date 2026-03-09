@@ -4,7 +4,7 @@
   import { generateMotif } from './source/MotifLibrary';
   import { loadImage, generatePointCloudFromImage, type ImageData } from './source/ImageIngestion';
   import { renderText, generatePointCloudFromText, type TextData } from './source/TextMask';
-  import { generateMotifMaps, generateMapsFromPreset } from './source/MotifProcessor';
+  import { generateMotifMaps } from './source/MotifProcessor';
   import { generateDualFieldPointCloud, DEFAULT_DUAL_FIELD_CONFIG, type DualFieldConfig } from './pointcloud/DualFieldPointCloud';
   import { DEFAULT_RENDER_STATE, type RenderState } from './state/RenderState';
   import { PRESETS, getPreset } from './presets/index';
@@ -36,7 +36,7 @@
     high: 1.0
   };
 
-  function regenerateCloud() {
+  async function regenerateCloud() {
     if (!renderer) return;
     
     const effectiveDensity = state.density * QUALITY_DENSITY[state.qualityTier];
@@ -58,7 +58,7 @@
         height = currentText.height;
       } else {
         // Generate from preset
-        const maps = generateMapsFromPreset(state.presetId, state.seed);
+        const maps = await generateMotifMaps({ type: 'preset', id: state.presetId }, state.seed);
         luminance = maps.structural;
         width = maps.width;
         height = maps.height;
@@ -84,7 +84,7 @@
       } else if (state.sourceMode === 'text' && currentText) {
         cloud = generatePointCloudFromText(currentText, effectiveDensity, state.seed);
       } else {
-        cloud = generateMotif(state.presetId, effectiveDensity, state.seed);
+        cloud = await generateMotif(state.presetId, effectiveDensity, state.seed);
       }
     }
     renderer.setPointCloud(cloud);
@@ -306,6 +306,15 @@
           <option value="medium">Medium</option>
           <option value="high">High</option>
         </select>
+      </label>
+
+      <label class="toggle">
+        <input 
+          type="checkbox" 
+          checked={state.renderMode === 'static'} 
+          on:change={() => state = { ...state, renderMode: state.renderMode === 'static' ? 'dynamic' : 'static' }}
+        />
+        <span>Static Mode <span class="badge">Truth</span></span>
       </label>
     </div>
     
@@ -603,6 +612,16 @@
   .toggle span {
     font-size: 12px;
     color: #888;
+  }
+
+  .badge {
+    background: #4a7c59;
+    color: #8fbc8f;
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
   }
   
   .control-section h3 {

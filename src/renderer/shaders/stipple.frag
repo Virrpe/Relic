@@ -9,6 +9,9 @@ uniform float uContrast;
 uniform float uPointSize;
 uniform float uTime;
 
+// Static mode: 1.0 = bypass time pulse, 0.0 = normal dynamic rendering
+uniform float uRenderMode;
+
 out vec4 fragColor;
 
 // Hash for pseudo-random
@@ -54,8 +57,10 @@ void main() {
   float seedVar = hash(vSeed * 100.0) * 0.1;
   color += seedVar;
   
-  // Time-based subtle pulse (very subtle)
-  float pulse = sin(uTime * 0.5 + vSeed * 10.0) * 0.02 + 1.0;
+  // Time-based subtle pulse - disabled in static mode
+  float pulse = uRenderMode < 0.5 
+    ? sin(uTime * 0.5 + vSeed * 10.0) * 0.02 + 1.0 
+    : 1.0;
   color *= pulse;
   
   fragColor = vec4(color, alpha);
