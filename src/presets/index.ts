@@ -18,13 +18,13 @@ export const PRESETS: Preset[] = [
     id: 'skull',
     name: 'Skull',
     defaultParams: {
-      density: 0.6,
+      density: 0.7,
       pointSize: 2.5,
-      wind: 0.3,
-      turbulence: 0.2,
-      erosion: 0.1,
+      wind: 0.0,         // Static mode - no wind
+      turbulence: 0.0,   // Static mode - no turbulence
+      erosion: 0.0,     // Static mode - no erosion
       brightness: 1.0,
-      contrast: 1.1
+      contrast: 1.15
     }
   },
   {

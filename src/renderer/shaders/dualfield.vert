@@ -1,10 +1,12 @@
 #version 300 es
 precision highp float;
 
-// Point data: x, y, weight, seed, layerType
-// layerType: 0 = structural, 1 = atmospheric, 2 = accent
+// Point data: x, y, weight, seed, layerType, markType
+// layerType: 0 = structural, 1 = tone, 2 = accent, 3 = atmosphere
+// markType: 0 = dust, 1 = grain, 2 = chunk, 3 = shard
 layout(location = 0) in vec4 aPoint;
 layout(location = 1) in float aLayerType;
+layout(location = 2) in float aMarkType;
 
 uniform float uTime;
 uniform float uWind;
@@ -32,6 +34,7 @@ uniform int uFrameCount;
 out float vWeight;
 out float vSeed;
 out float vLayerType;
+out float vMarkType;
 out vec2 vOriginalPos;
 
 // Hash functions
@@ -109,10 +112,12 @@ void main() {
   vec2 pos = aPoint.xy;
   float seed = aPoint.w;
   float layerType = aLayerType;
+  float markType = aMarkType;
   
   vWeight = aPoint.z;
   vSeed = seed;
   vLayerType = layerType;
+  vMarkType = markType;
   vOriginalPos = pos;
   
   // Get cyclic time for loop

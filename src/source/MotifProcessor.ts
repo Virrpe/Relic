@@ -235,26 +235,41 @@ export function generateMotifMaps(
 
 // Generate MotifMaps from a MotifPack - uses the plates directly
 export function generateMapsFromMotifPack(pack: MotifPack): MotifMaps {
-  const { width, height, alpha } = pack;
+  const { width, height, alpha, structure, tone, accent, atmo } = pack;
   
   // Use alpha as the primary structural mask
   // This represents silhouette/occupancy truth
   const structural: Float32Array = alpha.data;
   
+  // Use provided structure plate if available, otherwise derive from alpha
+  const structMap = structure ? structure.data : generateStructureFromAlpha(alpha.data, width, height);
+  
+  // Use provided tone plate if available, otherwise derive from alpha
+  const toneMap = tone ? tone.data : generateToneFromAlpha(alpha.data, width, height);
+  
   // Compute edge map from structural (alpha) using Sobel
   const edge = computeEdgeMapFromGray(structural, width, height);
+  
+  // Use provided accent plate if available, otherwise derive from edges
+  const accentMap = accent ? accent.data : generateAccentFromEdges(edge, structMap, width, height);
   
   // Compute distance map from structural
   const distance = computeDistanceMapFromGray(structural, width, height);
   
+  // Use provided atmosphere plate if available, otherwise derive from distance
+  const atmoMap = atmo ? atmo.data : generateAtmosphereFromDistance(distance, edge, width, height);
+  
   // Generate protected zones based on structure plate
   // High structure values indicate areas to preserve
-  const protectedZones = detectProtectedZonesFromStructure(structural, width, height);
+  const protectedZones = detectProtectedZonesFromStructure(structMap, width, height);
   
   const bounds = computeBoundsFromLuminance(structural, width, height);
   
   return {
-    structural,
+    structural: structMap,
+    tone: toneMap,
+    accent: accentMap,
+    atmosphere: atmoMap,
     edge,
     distance,
     protectedZones,
@@ -262,6 +277,71 @@ export function generateMapsFromMotifPack(pack: MotifPack): MotifMaps {
     height,
     bounds
   };
+}
+
+// Generate structure map from alpha (fallback when no structure plate)
+function generateStructureFromAlpha(alpha: Float32Array, width: number, height: number): Float32Array {
+  const structure = new Float32Array(width * height);
+  const threshold = 0.15;
+  
+  for (let i = 0; i < alpha.length; i++) {
+    const a = alpha[i];
+    // Structure follows alpha closely
+    structure[i] = a > threshold ? a : 0;
+  }
+  
+  return structure;
+}
+
+// Generate tone map from alpha (fallback when no tone plate)
+function generateToneFromAlpha(alpha: Float32Array, width: number, height: number): Float32Array {
+  const tone = new Float32Array(width * height);
+  
+  // Tone is similar to alpha but with slight variation
+  for (let i = 0; i < alpha.length; i++) {
+    tone[i] = alpha[i];
+  }
+  
+  return tone;
+}
+
+// Generate accent map from edges (fallback when no accent plate)
+function generateAccentFromEdges(edge: Float32Array, structure: Float32Array, width: number, height: number): Float32Array {
+  const accent = new Float32Array(width * height);
+  
+  for (let i = 0; i < edge.length; i++) {
+    const e = edge[i];
+    const s = structure[i];
+    
+    // Accent is highest at edges inside structure
+    if (s > 0.3) {
+      accent[i] = e > 0.15 ? e * s * 0.7 : 0;
+    } else {
+      accent[i] = 0;
+    }
+  }
+  
+  return accent;
+}
+
+// Generate atmosphere map from distance (fallback when no atmo plate)
+function generateAtmosphereFromDistance(distance: Float32Array, edge: Float32Array, width: number, height: number): Float32Array {
+  const atmosphere = new Float32Array(width * height);
+  
+  for (let i = 0; i < distance.length; i++) {
+    const d = distance[i];
+    const e = edge[i];
+    
+    // Atmosphere exists outside (d > 0) and near edges
+    if (d > 0) {
+      const nearEdgeFactor = Math.max(0, 1 - d * 3);
+      atmosphere[i] = nearEdgeFactor * 0.5 + e * 0.3;
+    } else {
+      atmosphere[i] = 0;
+    }
+  }
+  
+  return atmosphere;
 }
 
 // Compute edge map from grayscale data using Sobel

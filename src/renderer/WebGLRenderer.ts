@@ -90,10 +90,26 @@ export class WebGLRenderer {
     this.buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     
-    // Point attribute (x, y, weight, seed)
-    const loc = gl.getAttribLocation(this.program, 'aPoint');
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 0, 0);
+    // Point attribute (x, y, weight, seed) - stride 4
+    let loc = gl.getAttribLocation(this.program, 'aPoint');
+    if (loc >= 0) {
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 0, 0);
+    }
+    
+    // Layer type attribute - stride 4 (offset 16)
+    loc = gl.getAttribLocation(this.program, 'aLayerType');
+    if (loc >= 0) {
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 1, gl.FLOAT, false, 16, 0);
+    }
+    
+    // Mark type attribute - stride 6 (offset 20)  
+    loc = gl.getAttribLocation(this.program, 'aMarkType');
+    if (loc >= 0) {
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 1, gl.FLOAT, false, 20, 0);
+    }
     
     gl.bindVertexArray(null);
     
