@@ -29,6 +29,7 @@ export class WebGLRenderer {
   private uPointSize: WebGLUniformLocation | null = null;
   private uResolution: WebGLUniformLocation | null = null;
   private uTransform: WebGLUniformLocation | null = null;
+  private uRenderMode: WebGLUniformLocation | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -81,6 +82,7 @@ export class WebGLRenderer {
     this.uPointSize = gl.getUniformLocation(this.program, 'uPointSize');
     this.uResolution = gl.getUniformLocation(this.program, 'uResolution');
     this.uTransform = gl.getUniformLocation(this.program, 'uTransform');
+    this.uRenderMode = gl.getUniformLocation(this.program, 'uRenderMode');
     
     // Create VAO
     this.vao = gl.createVertexArray();
@@ -193,6 +195,9 @@ export class WebGLRenderer {
     gl.uniform1f(this.uPointSize, state.pointSize);
     gl.uniform2f(this.uResolution, this.canvas.width, this.canvas.height);
     gl.uniform4f(this.uTransform, this.scaleX, this.scaleY, this.offsetX, this.offsetY);
+    
+    // Static mode: 1.0 = bypass effects, 0.0 = normal dynamic
+    gl.uniform1f(this.uRenderMode, state.renderMode === 'static' ? 1.0 : 0.0);
     
     // Draw points
     gl.drawArrays(gl.POINTS, 0, this.pointCloud.particleCount);

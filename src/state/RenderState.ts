@@ -26,6 +26,9 @@ export interface RenderState {
   loopEnabled: boolean;
   loopDuration: number;     // seconds
   frameCount: number;       // frames for GIF
+
+  // Static render mode - bypasses all effects for diagnostic truth
+  renderMode: 'static' | 'dynamic';
 }
 
 export const DEFAULT_RENDER_STATE: RenderState = {
@@ -54,5 +57,8 @@ export const DEFAULT_RENDER_STATE: RenderState = {
   // Loop mode defaults
   loopEnabled: false,
   loopDuration: 3.0,
-  frameCount: 30
+  frameCount: 30,
+
+  // Static mode default
+  renderMode: 'dynamic'
 };

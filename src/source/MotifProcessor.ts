@@ -4,6 +4,10 @@
 import { generateMapsFromLuminance, type MotifMaps } from './MotifMaps';
 import { type ImageData } from './ImageIngestion';
 import { renderText } from './TextMask';
+import { getSkullMotif, getMothMotif, type MotifData } from './MotifFromSVG';
+
+// Flag to enable SVG-based motifs for better recognition
+const USE_SVG_MOTIFS = true;
 
 // Preset mask definitions - explicit mask data for each preset
 // These replace procedural guesses with proper SDF-like representations
@@ -24,51 +28,68 @@ export interface PresetMaskDefinition {
   shapeFn: (x: number, y: number) => number;
 }
 
-// Skull preset mask - explicit void zones for eye sockets, nose, teeth gaps
+// Skull preset mask - improved for static mode truth with clearer features
 const skullMaskDefinition: PresetMaskDefinition = {
   id: 'skull',
   name: 'Skull',
   resolution: 256,
   protectedZones: [
     // Eye sockets - critical voids
-    { x: 0.35, y: 0.45, radius: 0.08, type: 'void' },
-    { x: 0.65, y: 0.45, radius: 0.08, type: 'void' },
+    { x: 0.36, y: 0.475, radius: 0.09, type: 'void' },
+    { x: 0.64, y: 0.475, radius: 0.09, type: 'void' },
     // Nose cavity
-    { x: 0.5, y: 0.38, radius: 0.05, type: 'void' },
+    { x: 0.5, y: 0.375, radius: 0.06, type: 'void' },
     // Teeth gaps
-    { x: 0.42, y: 0.22, radius: 0.025, type: 'void' },
-    { x: 0.5, y: 0.22, radius: 0.025, type: 'void' },
-    { x: 0.58, y: 0.22, radius: 0.025, type: 'void' },
+    { x: 0.41, y: 0.235, radius: 0.02, type: 'void' },
+    { x: 0.5, y: 0.235, radius: 0.02, type: 'void' },
+    { x: 0.59, y: 0.235, radius: 0.02, type: 'void' },
   ],
   shapeFn: (x: number, y: number): number => {
     const nx = (x - 0.5) * 2;
     const ny = (y - 0.5) * 2;
     
-    // Cranium
-    const craniumDist = Math.sqrt(nx * nx + (ny + 0.1) * (ny + 0.1));
-    const cranium = craniumDist < 0.85 ? 1 - (craniumDist / 0.85) * 0.4 : 0;
+    // === CRANIUM (upper skull) ===
+    const craniumRX = 0.65;
+    const craniumRY = 0.55;
+    const craniumDist = Math.sqrt((nx / craniumRX) ** 2 + ((ny + 0.1) / craniumRY) ** 2);
+    const cranium = craniumDist < 1 ? Math.pow(1 - craniumDist, 0.7) : 0;
     
-    // Jaw
+    // === JAW (lower skull) ===
+    const jawTaper = 1 - Math.max(0, (ny + 0.5) / 0.4);
+    const jawWidth = 0.35 * jawTaper + 0.15;
     const jawY = ny + 0.55;
-    const inJaw = Math.abs(nx) < 0.45 && jawY > -0.15 && jawY < 0.25 
-      ? (1 - Math.abs(nx) / 0.45) * (1 - (jawY + 0.15) / 0.4) 
+    const inJaw = Math.abs(nx) < jawWidth && jawY > 0 && jawY < 0.35 
+      ? Math.pow(1 - jawY / 0.35, 0.8) * (1 - Math.abs(nx) / jawWidth * 0.3)
       : 0;
     
-    // Cheekbones
-    const cheekL = Math.sqrt((nx + 0.35) * (nx + 0.35) + (ny - 0.05) * (ny - 0.05));
-    const cheekR = Math.sqrt((nx - 0.35) * (nx - 0.35) + (ny - 0.05) * (ny - 0.05));
+    // === CHEEKBONES ===
+    const cheekL = Math.sqrt((nx + 0.4) ** 2 + (ny - 0.15) ** 2);
+    const cheekR = Math.sqrt((nx - 0.4) ** 2 + (ny - 0.15) ** 2);
     const cheek = Math.max(
-      cheekL < 0.22 ? (1 - cheekL / 0.22) * 0.6 : 0,
-      cheekR < 0.22 ? (1 - cheekR / 0.22) * 0.6 : 0
+      cheekL < 0.18 ? Math.pow(1 - cheekL / 0.18, 0.6) : 0,
+      cheekR < 0.18 ? Math.pow(1 - cheekR / 0.18, 0.6) : 0
     );
     
-    // Brow ridge
-    const browY = ny - 0.2;
-    const brow = Math.abs(nx) < 0.5 && browY > -0.1 && browY < 0.05
-      ? (1 - Math.abs(nx) / 0.5) * 0.4
+    // === EYE SOCKETS (void) ===
+    const eyeL = Math.sqrt(((nx + 0.28) / 0.9) ** 2 + ((ny - 0.05) / 1.1) ** 2);
+    const eyeR = Math.sqrt(((nx - 0.28) / 0.9) ** 2 + ((ny - 0.05) / 1.1) ** 2);
+    const eyeInvert = Math.max(
+      eyeL < 0.16 ? -0.6 : 0,
+      eyeR < 0.16 ? -0.6 : 0
+    );
+    
+    // === NASAL CAVITY (void) ===
+    const noseDist = Math.abs(nx) * 2.5 + (ny + 0.25);
+    const noseInvert = noseDist < 0.18 ? -0.5 : 0;
+    
+    // === BROW RIDGE ===
+    const browY = ny + 0.25;
+    const brow = Math.abs(nx) < 0.45 && browY > -0.08 && browY < 0.05
+      ? Math.pow(1 - Math.abs(browY) / 0.08, 2) * 0.4 * (1 - Math.abs(nx) / 0.45 * 0.5)
       : 0;
     
-    return Math.min(1, Math.max(0, cranium + inJaw * 0.9 + cheek + brow));
+    let weight = cranium * 0.9 + inJaw * 0.85 + cheek + brow + eyeInvert + noseInvert;
+    return Math.max(0, Math.min(1, weight * 0.95));
   }
 };
 
@@ -158,10 +179,41 @@ export const PRESET_MASKS: Record<string, PresetMaskDefinition> = {
 };
 
 // Generate MotifMaps from a preset
-export function generateMapsFromPreset(
+export async function generateMapsFromPreset(
   presetId: string,
   seed: number
-): MotifMaps {
+): Promise<MotifMaps> {
+  // Use SVG-based motifs for skull and moth when enabled
+  if (USE_SVG_MOTIFS && (presetId === 'skull' || presetId === 'moth' || presetId === 'skull_clean' || presetId === 'moth_clean')) {
+    try {
+      const motifData: MotifData = presetId === 'skull' || presetId === 'skull_clean' 
+        ? await getSkullMotif() 
+        : await getMothMotif();
+      
+      const maps = generateMapsFromLuminance(motifData.luminance, motifData.width, motifData.height, seed);
+      
+      // Add appropriate protected zones based on motif
+      if (presetId === 'skull' || presetId === 'skull_clean') {
+        maps.protectedZones = [
+          { x: 0.35, y: 0.4, radius: 0.12, type: 'void' },
+          { x: 0.65, y: 0.4, radius: 0.12, type: 'void' },
+          { x: 0.5, y: 0.5, radius: 0.08, type: 'void' },
+        ];
+      } else {
+        maps.protectedZones = [
+          { x: 0.5, y: 0.45, radius: 0.1, type: 'void' },
+          { x: 0.35, y: 0.8, radius: 0.08, type: 'void' },
+          { x: 0.65, y: 0.8, radius: 0.08, type: 'void' },
+        ];
+      }
+      
+      return maps;
+    } catch (e) {
+      console.warn('SVG motif failed, falling back to procedural:', e);
+    }
+  }
+  
+  // Fallback to procedural
   const preset = PRESET_MASKS[presetId] || skullMaskDefinition;
   
   // Generate luminance from preset shape
@@ -217,10 +269,10 @@ export function generateMapsFromText(
 }
 
 // Unified function to get maps from any source
-export function generateMotifMaps(
+export async function generateMotifMaps(
   source: { type: 'preset'; id: string } | { type: 'image'; data: ImageData } | { type: 'text'; content: string },
   seed: number
-): MotifMaps {
+): Promise<MotifMaps> {
   switch (source.type) {
     case 'preset':
       return generateMapsFromPreset(source.id, seed);

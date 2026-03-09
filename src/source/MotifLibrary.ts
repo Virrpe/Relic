@@ -1,4 +1,8 @@
 import { createPointCloud, type PointCloud } from '../pointcloud/PointCloud';
+import { getSkullMotif, getMothMotif } from './MotifFromSVG';
+
+// Flag to enable SVG-based rendering for better motif recognition
+const USE_SVG_MOTIFS = true;
 
 // Seeded random number generator
 function seededRandom(seed: number): () => number {
@@ -10,73 +14,134 @@ function seededRandom(seed: number): () => number {
 }
 
 // Skull shape function - returns weight (0-1) for a given x,y position
+// Improved version with clearer features for static mode truth
 function skullShape(x: number, y: number): number {
   // Normalize to -1 to 1
   const nx = x * 2 - 1;
   const ny = y * 2 - 1;
   
-  // Skull outline - rounded rectangle with some characteristic features
-  const cr = 0.7; // Cranium radius
-  const jawH = 0.25; // Jaw height
+  // === CRANIUM (upper skull) ===
+  // Large elliptical cranium
+  const craniumRX = 0.65;
+  const craniumRY = 0.55;
+  const craniumDist = Math.sqrt((nx / craniumRX) ** 2 + ((ny + 0.1) / craniumRY) ** 2);
+  const cranium = craniumDist < 1 ? Math.pow(1 - craniumDist, 0.7) : 0;
   
-  // Cranium (top part)
-  const craniumDist = Math.sqrt(nx * nx + (ny + 0.15) * (ny + 0.15));
-  const inCranium = craniumDist < cr ? 1 - (craniumDist / cr) * 0.3 : 0;
-  
-  // Jaw (bottom part)
+  // === JAW (lower skull) ===
+  // Tapered jaw section
+  const jawTaper = 1 - Math.max(0, (ny + 0.5) / 0.4); // Tapers as we go down
+  const jawWidth = 0.35 * jawTaper + 0.15;
   const jawY = ny + 0.55;
-  const inJaw = Math.abs(nx) < 0.4 && jawY > 0 && jawY < jawH ? 1 - (jawY / jawH) * 0.5 : 0;
+  const inJaw = Math.abs(nx) < jawWidth && jawY > 0 && jawY < 0.35 
+    ? Math.pow(1 - jawY / 0.35, 0.8) * (1 - Math.abs(nx) / jawWidth * 0.3)
+    : 0;
   
-  // Cheekbones
-  const cheekL = Math.sqrt((nx + 0.35) * (nx + 0.35) + (ny - 0.1) * (ny - 0.1));
-  const cheekR = Math.sqrt((nx - 0.35) * (nx - 0.35) + (ny - 0.1) * (ny - 0.1));
+  // === CHEEKBONES ===
+  const cheekL = Math.sqrt((nx + 0.4) ** 2 + (ny - 0.15) ** 2);
+  const cheekR = Math.sqrt((nx - 0.4) ** 2 + (ny - 0.15) ** 2);
   const cheek = Math.max(
-    cheekL < 0.2 ? 1 - cheekL * 5 : 0,
-    cheekR < 0.2 ? 1 - cheekR * 5 : 0
-  ) * 0.5;
-  
-  // Eye sockets (negative)
-  const eyeL = Math.sqrt((nx + 0.25) * (nx + 0.25) + (ny - 0.05) * (ny - 0.05));
-  const eyeR = Math.sqrt((nx - 0.25) * (nx - 0.25) + (ny - 0.05) * (ny - 0.05));
-  const eyeInvert = Math.max(
-    eyeL < 0.15 ? -0.5 : 0,
-    eyeR < 0.15 ? -0.5 : 0
+    cheekL < 0.18 ? Math.pow(1 - cheekL / 0.18, 0.6) : 0,
+    cheekR < 0.18 ? Math.pow(1 - cheekR / 0.18, 0.6) : 0
   );
   
-  // Nose cavity
-  const noseDist = Math.abs(nx) + Math.abs(ny + 0.2);
-  const noseInvert = noseDist < 0.12 ? -0.4 : 0;
+  // === EYE SOCKETS (void - darker) ===
+  const eyeL = Math.sqrt(((nx + 0.28) / 0.9) ** 2 + ((ny - 0.05) / 1.1) ** 2);
+  const eyeR = Math.sqrt(((nx - 0.28) / 0.9) ** 2 + ((ny - 0.05) / 1.1) ** 2);
+  const eyeInvert = Math.max(
+    eyeL < 0.16 ? -0.6 : 0,
+    eyeR < 0.16 ? -0.6 : 0
+  );
   
-  // Combine
-  let weight = Math.max(0, inCranium + inJaw + cheek + eyeInvert + noseInvert);
-  return Math.max(0, Math.min(1, weight));
+  // === NASAL CAVITY (void - triangular) ===
+  // Inverted triangle for nose hole
+  const noseDist = Math.abs(nx) * 2.5 + (ny + 0.25);
+  const noseInvert = noseDist < 0.18 ? -0.5 : 0;
+  
+  // === BROW RIDGE ===
+  const browY = ny + 0.25;
+  const brow = Math.abs(nx) < 0.45 && browY > -0.08 && browY < 0.05
+    ? Math.pow(1 - Math.abs(browY) / 0.08, 2) * 0.4 * (1 - Math.abs(nx) / 0.45 * 0.5)
+    : 0;
+  
+  // === TEMPLE RECESSIONS ===
+  const templeL = Math.sqrt((nx + 0.55) ** 2 + (ny + 0.05) ** 2);
+  const templeR = Math.sqrt((nx - 0.55) ** 2 + (ny + 0.05) ** 2);
+  const temple = Math.max(
+    templeL < 0.12 ? -0.2 : 0,
+    templeR < 0.12 ? -0.2 : 0
+  );
+  
+  // Combine all features
+  let weight = cranium * 0.9 + inJaw * 0.85 + cheek + brow + eyeInvert + noseInvert + temple;
+  return Math.max(0, Math.min(1, weight * 0.95));
 }
 
-// Moth shape
+// Moth shape - improved for better recognition in static mode
 function mothShape(x: number, y: number): number {
   const nx = (x - 0.5) * 2;
   const ny = (y - 0.5) * 2;
   
-  // Wing shape - two ellipses
-  const wingL = Math.sqrt(((nx + 0.3) / 0.8) ** 2 + (ny / 0.5) ** 2);
-  const wingR = Math.sqrt(((nx - 0.3) / 0.8) ** 2 + (ny / 0.5) ** 2);
+  // === WINGS ===
+  // Upper wings - larger, more angular
+  // Left upper wing
+  const wingULX = nx + 0.35;
+  const wingULY = ny + 0.15;
+  const wingUL = Math.sqrt((wingULX / 0.75) ** 2 + (wingULY / 0.55) ** 2);
+  
+  // Right upper wing  
+  const wingURX = nx - 0.35;
+  const wingURY = ny + 0.15;
+  const wingUR = Math.sqrt((wingURX / 0.75) ** 2 + (wingURY / 0.55) ** 2);
+  
+  // Lower wings - smaller, more rounded
+  const wingLLX = nx + 0.3;
+  const wingLLY = ny - 0.35;
+  const wingLL = Math.sqrt((wingLLX / 0.6) ** 2 + (wingLLY / 0.45) ** 2);
+  
+  const wingLRX = nx - 0.3;
+  const wingLRY = ny - 0.35;
+  const wingLR = Math.sqrt((wingLRX / 0.6) ** 2 + (wingLRY / 0.45) ** 2);
+  
   const wings = Math.max(
-    wingL < 1 ? 1 - wingL : 0,
-    wingR < 1 ? 1 - wingR : 0
+    wingUL < 1 ? Math.pow(1 - wingUL, 0.8) : 0,
+    wingUR < 1 ? Math.pow(1 - wingUR, 0.8) : 0,
+    wingLL < 1 ? Math.pow(1 - wingLL, 0.8) * 0.9 : 0,
+    wingLR < 1 ? Math.pow(1 - wingLR, 0.8) * 0.9 : 0
   );
   
-  // Body
-  const body = Math.abs(nx) < 0.08 && Math.abs(ny) < 0.6 ? 1 - Math.abs(ny) / 0.6 : 0;
+  // === BODY ===
+  // Thorax (middle section)
+  const thorax = Math.sqrt((nx / 0.1) ** 2 + ((ny + 0.2) / 0.15) ** 2);
+  const thoraxFill = thorax < 1 ? Math.pow(1 - thorax, 0.7) : 0;
   
-  // Antennae
-  const antL = Math.sqrt((nx + 0.1 - ny * 0.3) ** 2 + (ny - 0.5) ** 2);
-  const antR = Math.sqrt((nx - 0.1 + ny * 0.3) ** 2 + (ny - 0.5) ** 2);
-  const antennae = Math.max(
-    antL < 0.5 ? (1 - antL * 2) * 0.5 : 0,
-    antR < 0.5 ? (1 - antR * 2) * 0.5 : 0
+  // Abdomen (tail section)
+  const abdomen = Math.sqrt((nx / 0.07) ** 2 + ((ny - 0.25) / 0.35) ** 2);
+  const abdomenFill = abdomen < 1 ? Math.pow(1 - abdomen, 0.8) : 0;
+  
+  // === HEAD ===
+  const head = Math.sqrt(nx * nx + (ny + 0.4) ** 2);
+  const headFill = head < 0.12 ? Math.pow(1 - head / 0.12, 0.7) : 0;
+  
+  // === ANTENNAE ===
+  // Curved antennae extending from head
+  const antL1 = Math.sqrt((nx + 0.08 - (ny + 0.45) * 0.4) ** 2 + (ny + 0.55) ** 2);
+  const antL2 = Math.sqrt((nx + 0.15 - (ny + 0.35) * 0.6) ** 2 + (ny + 0.5) ** 2);
+  const antennaeL = Math.max(
+    antL1 < 0.5 ? (1 - antL1) * 0.5 : 0,
+    antL2 < 0.4 ? (1 - antL2) * 0.4 : 0
   );
   
-  return Math.min(1, wings * 0.8 + body + antennae);
+  const antR1 = Math.sqrt((nx - 0.08 + (ny + 0.45) * 0.4) ** 2 + (ny + 0.55) ** 2);
+  const antR2 = Math.sqrt((nx - 0.15 + (ny + 0.35) * 0.6) ** 2 + (ny + 0.5) ** 2);
+  const antennaeR = Math.max(
+    antR1 < 0.5 ? (1 - antR1) * 0.5 : 0,
+    antR2 < 0.4 ? (1 - antR2) * 0.4 : 0
+  );
+  
+  // Wing body gap (void between wings)
+  const wingGap = Math.abs(nx) < 0.12 && Math.abs(ny) < 0.5 ? -0.3 : 0;
+  
+  return Math.min(1, wings * 0.85 + thoraxFill + abdomenFill * 0.9 + headFill + antennaeL + antennaeR + wingGap);
 }
 
 // Saint shape (stylized figure)
@@ -173,12 +238,48 @@ export function generatePointCloud(
   return createPointCloud(buffer, points.length / 4);
 }
 
-// Preset generators
-export function generateMotif(motifId: string, density: number, seed: number): PointCloud {
+// Preset generators - use SVG for skull/moth when enabled
+export async function generateMotif(motifId: string, density: number, seed: number): Promise<PointCloud> {
+  // Use SVG-based motifs for skull and moth
+  if (USE_SVG_MOTIFS && (motifId === 'skull' || motifId === 'moth' || motifId === 'skull_clean' || motifId === 'moth_clean')) {
+    try {
+      const motifData = motifId === 'skull' || motifId === 'skull_clean'
+        ? await getSkullMotif()
+        : await getMothMotif();
+      
+      // Generate point cloud from SVG luminance
+      const random = seededRandom(seed);
+      const { width, height, luminance } = motifData;
+      const points: number[] = [];
+      
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const idx = y * width + x;
+          const weight = luminance[idx];
+          
+          // Sample based on density
+          if (weight > 0.15 && random() < density) {
+            const px = x / width;
+            const py = y / height;
+            points.push(px, py, weight, random());
+          }
+        }
+      }
+      
+      const buffer = new Float32Array(points);
+      return createPointCloud(buffer, points.length / 4);
+    } catch (e) {
+      console.warn('SVG motif failed, falling back to procedural:', e);
+    }
+  }
+  
+  // Fallback to procedural
   switch (motifId) {
     case 'skull':
+    case 'skull_clean':
       return generatePointCloud(skullShape, density, seed);
     case 'moth':
+    case 'moth_clean':
       return generatePointCloud(mothShape, density, seed);
     case 'saint':
       return generatePointCloud(saintShape, density, seed);
