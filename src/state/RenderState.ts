@@ -22,6 +22,30 @@ export interface RenderState {
   glitchEnabled: boolean;
   glitchIntensity: number;  // 0-1
   
+  // Field-specific erosion parameters (Phase 2)
+  fieldErosionAmount: number;    // 0-1, strength of erosion
+  fieldErosionMode: 'outside-in' | 'edge' | 'uniform';
+  fieldErosionSeed: number;     // for noise patterns
+  
+  // Pixel stylization parameters (Phase 3)
+  fieldPixelSize: number;       // pixel block size (e.g., 2-8 pixels)
+  fieldPixelQuantize: boolean;  // reduce color depth
+  fieldBlockDisplace: number;   // block jitter amount
+  fieldEdgeBreakup: number;     // edge fragmentation
+  
+  // Dissolve parameters (Phase 4)
+  fieldDissolveEnabled: boolean;
+  fieldDissolveDirection: 'left-right' | 'right-left' | 'top-bottom' | 'bottom-top';
+  fieldDissolveEdge: number;    // 0-1 position
+  fieldDissolveWidth: number;   // transition width
+  fieldDissolveNoise: number;   // edge irregularity
+  
+  // Glitch parameters (Phase 4)
+  fieldGlitchEnabled: boolean;
+  fieldGlitchIntensity: number;  // 0-1
+  fieldGlitchBlockSize: number; // row/block height for corruption
+  fieldGlitchSpeed: number;     // animation speed
+  
   // Loop mode
   loopEnabled: boolean;
   loopDuration: number;     // seconds
@@ -50,6 +74,30 @@ export const DEFAULT_RENDER_STATE: RenderState = {
   // Glitch defaults
   glitchEnabled: false,
   glitchIntensity: 0.3,
+  
+  // Field erosion defaults (Phase 2)
+  fieldErosionAmount: 0,
+  fieldErosionMode: 'outside-in',
+  fieldErosionSeed: 42,
+  
+  // Pixel stylization defaults (Phase 3)
+  fieldPixelSize: 1,
+  fieldPixelQuantize: false,
+  fieldBlockDisplace: 0,
+  fieldEdgeBreakup: 0,
+  
+  // Field dissolve defaults (Phase 4)
+  fieldDissolveEnabled: false,
+  fieldDissolveDirection: 'left-right',
+  fieldDissolveEdge: 0.5,
+  fieldDissolveWidth: 0.15,
+  fieldDissolveNoise: 0.1,
+  
+  // Field glitch defaults (Phase 4)
+  fieldGlitchEnabled: false,
+  fieldGlitchIntensity: 0.3,
+  fieldGlitchBlockSize: 10,
+  fieldGlitchSpeed: 1.0,
   
   // Loop mode defaults
   loopEnabled: false,

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { WebGLRenderer } from './renderer/WebGLRenderer';
+  import { FieldRenderer, DEBUG_VIEWS } from './renderer/FieldRenderer';
   import { generateMotif } from './source/MotifLibrary';
   import { loadImage, generatePointCloudFromImage, type ImageData } from './source/ImageIngestion';
   import { renderText, generatePointCloudFromText, type TextData } from './source/TextMask';
@@ -12,6 +13,13 @@
 
   let canvas: HTMLCanvasElement;
   let renderer: WebGLRenderer | null = null;
+  let fieldRenderer: FieldRenderer | null = null;
+  
+  // Renderer mode: 'point' or 'field'
+  let rendererMode: 'point' | 'field' = 'point';
+  
+  // Field renderer debug view
+  let fieldDebugView: number = DEBUG_VIEWS.FINAL;
   
   // Reactive state
   let state: RenderState = { ...DEFAULT_RENDER_STATE };
@@ -141,6 +149,8 @@
       return; // Don't call regenerateCloud again below
     }
     regenerateCloud();
+    // Reload field renderer data
+    loadFieldRendererData();
   }
 
   function handleTextInput(e: Event) {
@@ -221,6 +231,8 @@
       currentMotifPack = await loadMotifPack(plateSlots);
       state.sourceMode = 'motif-pack';
       regenerateCloud();
+      // Load data into field renderer
+      loadFieldRendererData();
     } catch (err) {
       motifPackError = err instanceof Error ? err.message : 'Failed to load motif pack';
       console.error('Failed to load motif pack:', err);
@@ -296,15 +308,40 @@
   }
 
   onMount(() => {
-    // Initialize renderer
+    // Initialize point cloud renderer
     renderer = new WebGLRenderer(canvas);
     renderer.resize(canvasWidth, canvasHeight);
     
-    // Generate initial cloud
+    // Initialize field renderer
+    fieldRenderer = new FieldRenderer(canvas);
+    fieldRenderer.resize(canvasWidth, canvasHeight);
+    
+    // Load data into field renderer based on current source mode
+    loadFieldRendererData();
+    
+    // Generate initial point cloud
     regenerateCloud();
     
-    // Start animation - pass a getter to always get current state
-    renderer.startAnimation(() => state);
+    // Start animation loop - we'll handle both renderers
+    let startTime = performance.now();
+    let animationId: number;
+    
+    function animate() {
+      const time = (performance.now() - startTime) / 1000;
+      
+      if (rendererMode === 'field' && fieldRenderer?.isReady()) {
+        // Use field renderer
+        fieldRenderer.setDebugView(fieldDebugView);
+        fieldRenderer.render(state, time);
+      } else if (renderer) {
+        // Use point cloud renderer
+        renderer.render(state);
+      }
+      
+      animationId = requestAnimationFrame(animate);
+    }
+    
+    animate();
     
     // Handle resize
     const resizeObserver = new ResizeObserver(entries => {
@@ -312,18 +349,46 @@
         canvasWidth = entry.contentRect.width;
         canvasHeight = entry.contentRect.height;
         renderer?.resize(canvasWidth, canvasHeight);
+        fieldRenderer?.resize(canvasWidth, canvasHeight);
       }
     });
     
     resizeObserver.observe(canvas.parentElement!);
     
     return () => {
+      cancelAnimationFrame(animationId);
       resizeObserver.disconnect();
     };
   });
+  
+  // Load data into field renderer
+  function loadFieldRendererData() {
+    if (!fieldRenderer) return;
+    
+    if (state.sourceMode === 'motif-pack' && currentMotifPack) {
+      // Load from motif pack
+      fieldRenderer.loadMotifPack(currentMotifPack);
+    } else if (state.sourceMode === 'image' && currentImage) {
+      // Load from image
+      fieldRenderer.loadFromStructuralMap(currentImage.luminance, currentImage.width, currentImage.height);
+    } else if (state.sourceMode === 'text' && currentText) {
+      // Load from text
+      fieldRenderer.loadFromStructuralMap(currentText.luminance, currentText.width, currentText.height);
+    } else {
+      // Generate from preset
+      const maps = generateMapsFromPreset(state.presetId, state.seed);
+      fieldRenderer.loadFromStructuralMap(maps.structural, maps.width, maps.height);
+    }
+  }
+  
+  // Toggle renderer mode
+  function toggleRendererMode() {
+    rendererMode = rendererMode === 'point' ? 'field' : 'point';
+  }
 
   onDestroy(() => {
     renderer?.destroy();
+    fieldRenderer?.destroy();
   });
 </script>
 
@@ -514,6 +579,30 @@
           <option value="high">High</option>
         </select>
       </label>
+    </div>
+    
+    <div class="control-section">
+      <h3>Rendering Pipeline</h3>
+      <label class="toggle">
+        <input type="checkbox" checked={rendererMode === 'field'} on:change={toggleRendererMode} />
+        <span>Use Field Renderer (GPU Texture Sampling)</span>
+      </label>
+      
+      {#if rendererMode === 'field'}
+        <label>
+          <span>Debug View</span>
+          <select bind:value={fieldDebugView}>
+            <option value={DEBUG_VIEWS.FINAL}>Final Composite</option>
+            <option value={DEBUG_VIEWS.ALPHA}>Alpha Field</option>
+            <option value={DEBUG_VIEWS.STRUCTURE}>Structure Field</option>
+            <option value={DEBUG_VIEWS.TONE}>Tone Field</option>
+            <option value={DEBUG_VIEWS.ACCENT}>Accent Field</option>
+            <option value={DEBUG_VIEWS.ATMO}>Atmo Field</option>
+            <option value={DEBUG_VIEWS.EDGE}>Edge Field</option>
+            <option value={DEBUG_VIEWS.EROSION}>Erosion Mask</option>
+          </select>
+        </label>
+      {/if}
     </div>
     
     <div class="control-section">
