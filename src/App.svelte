@@ -123,10 +123,11 @@
     } else if (mode === 'motif-pack') {
       currentImage = null;
       currentText = null;
-      // If no pack loaded, don't regenerate yet
-      if (!currentMotifPack) {
-        return;
+      // Regenerate if pack is loaded, otherwise just switch mode
+      if (currentMotifPack) {
+        regenerateCloud();
       }
+      return; // Don't call regenerateCloud again below
     }
     regenerateCloud();
   }
@@ -474,6 +475,7 @@
           
           {#if currentMotifPack}
             <span class="loaded">Motif Pack loaded ({currentMotifPack.width}x{currentMotifPack.height})</span>
+            <button class="generate-btn" on:click={() => regenerateCloud()}>Generate Points</button>
             <button class="clear-btn" on:click={clearMotifPack}>Clear Pack</button>
             
             <label>
@@ -1013,6 +1015,24 @@
   .clear-btn:hover {
     background: #3a2a2a;
     border-color: #664;
+  }
+
+  .generate-btn {
+    padding: 8px 12px;
+    background: #2a2a3a;
+    border: 1px solid #446;
+    color: #aaf;
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 8px;
+    margin-right: 8px;
+  }
+
+  .generate-btn:hover {
+    background: #3a3a4a;
+    border-color: #668;
   }
 
   .error {
