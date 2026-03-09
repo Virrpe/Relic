@@ -97,6 +97,17 @@
         cloud = generatePointCloudFromImage(currentImage, effectiveDensity, state.seed);
       } else if (state.sourceMode === 'text' && currentText) {
         cloud = generatePointCloudFromText(currentText, effectiveDensity, state.seed);
+      } else if (state.sourceMode === 'motif-pack' && currentMotifPack) {
+        // Use motif pack for legacy rendering too
+        const maps = generateMapsFromMotifPack(currentMotifPack);
+        // Create a simple point cloud from the structural map
+        const imageData = {
+          canvas: document.createElement('canvas'),
+          width: maps.width,
+          height: maps.height,
+          luminance: maps.structural
+        };
+        cloud = generatePointCloudFromImage(imageData, effectiveDensity, state.seed);
       } else {
         cloud = generateMotif(state.presetId, effectiveDensity, state.seed);
       }
