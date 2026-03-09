@@ -403,7 +403,7 @@
             <span class="loading">Loading motif pack...</span>
           {/if}
           
-          <label class="plate-upload">
+          <div class="plate-upload">
             <span>Alpha (silhouette) *</span>
             <input 
               type="file" 
@@ -415,9 +415,9 @@
             {:else if plateSlots.alpha}
               <span class="loaded">File selected</span>
             {/if}
-          </label>
+          </div>
           
-          <label class="plate-upload">
+          <div class="plate-upload">
             <span>Structure (preservation) *</span>
             <input 
               type="file" 
@@ -429,9 +429,9 @@
             {:else if plateSlots.structure}
               <span class="loaded">File selected</span>
             {/if}
-          </label>
+          </div>
           
-          <label class="plate-upload">
+          <div class="plate-upload">
             <span>Tone (density) *</span>
             <input 
               type="file" 
@@ -443,9 +443,9 @@
             {:else if plateSlots.tone}
               <span class="loaded">File selected</span>
             {/if}
-          </label>
+          </div>
           
-          <label class="plate-upload optional">
+          <div class="plate-upload optional">
             <span>Accent (highlights) - Optional</span>
             <input 
               type="file" 
@@ -457,9 +457,9 @@
             {:else if plateSlots.accent}
               <span class="loaded">File selected</span>
             {/if}
-          </label>
+          </div>
           
-          <label class="plate-upload optional">
+          <div class="plate-upload optional">
             <span>Atmo (atmosphere) - Optional</span>
             <input 
               type="file" 
@@ -471,7 +471,7 @@
             {:else if plateSlots.atmo}
               <span class="loaded">File selected</span>
             {/if}
-          </label>
+          </div>
           
           {#if currentMotifPack}
             <span class="loaded">Motif Pack loaded ({currentMotifPack.width}x{currentMotifPack.height})</span>
@@ -974,7 +974,7 @@
     padding: 6px 0;
   }
 
-  .plate-upload > span {
+  .plate-upload > span:first-child {
     flex: 0 0 120px;
     font-size: 11px;
     color: #aaa;
@@ -982,13 +982,14 @@
 
   .plate-upload input[type="file"] {
     flex: 1;
+    font-size: 11px;
   }
 
   .plate-upload.optional {
     opacity: 0.7;
   }
 
-  .plate-upload.optional > span {
+  .plate-upload.optional > span:first-child {
     color: #777;
   }
 
