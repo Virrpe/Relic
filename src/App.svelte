@@ -55,21 +55,15 @@
       let maps;
       
       if (state.sourceMode === 'motif-pack' && currentMotifPack) {
-      
-      if (state.sourceMode === 'motif-pack' && currentMotifPack) {
         // Use motif pack - generate maps from pack plates
         maps = generateMapsFromMotifPack(currentMotifPack);
-        useMapsDirectly = true;
       } else if (state.sourceMode === 'preset') {
         // Generate from preset
         maps = generateMapsFromPreset(state.presetId, state.seed);
-        useMapsDirectly = true;
       } else if (state.sourceMode === 'image' && currentImage) {
         maps = generateMapsFromPreset('skull', state.seed); // Use default
-        useMapsDirectly = true;
       } else {
         maps = generateMapsFromPreset('skull', state.seed);
-        useMapsDirectly = true;
       }
       
       const dfConfig: Partial<DualFieldConfig> = {
