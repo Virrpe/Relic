@@ -4,6 +4,8 @@
   import { generateMotif } from './source/MotifLibrary';
   import { loadImage, generatePointCloudFromImage, type ImageData } from './source/ImageIngestion';
   import { renderText, generatePointCloudFromText, type TextData } from './source/TextMask';
+  import { generateMotifMaps, generateMapsFromPreset } from './source/MotifProcessor';
+  import { generateDualFieldPointCloud, DEFAULT_DUAL_FIELD_CONFIG, type DualFieldConfig } from './pointcloud/DualFieldPointCloud';
   import { DEFAULT_RENDER_STATE, type RenderState } from './state/RenderState';
   import { PRESETS, getPreset } from './presets/index';
 
@@ -23,6 +25,10 @@
   let currentText: TextData | null = null;
   let textInput = 'RELIC';
 
+  // Dual field config
+  let dualFieldConfig: DualFieldConfig = { ...DEFAULT_DUAL_FIELD_CONFIG };
+  let useDualField = false;
+
   // Quality tiers for density mapping
   const QUALITY_DENSITY = {
     low: 0.3,
@@ -36,12 +42,50 @@
     const effectiveDensity = state.density * QUALITY_DENSITY[state.qualityTier];
     
     let cloud;
-    if (state.sourceMode === 'image' && currentImage) {
-      cloud = generatePointCloudFromImage(currentImage, effectiveDensity, state.seed);
-    } else if (state.sourceMode === 'text' && currentText) {
-      cloud = generatePointCloudFromText(currentText, effectiveDensity, state.seed);
+    if (useDualField) {
+      // Use dual-field rendering
+      let luminance: Float32Array;
+      let width: number;
+      let height: number;
+      
+      if (state.sourceMode === 'image' && currentImage) {
+        luminance = currentImage.luminance;
+        width = currentImage.width;
+        height = currentImage.height;
+      } else if (state.sourceMode === 'text' && currentText) {
+        luminance = currentText.luminance;
+        width = currentText.width;
+        height = currentText.height;
+      } else {
+        // Generate from preset
+        const maps = generateMapsFromPreset(state.presetId, state.seed);
+        luminance = maps.structural;
+        width = maps.width;
+        height = maps.height;
+      }
+      
+      const dfConfig: Partial<DualFieldConfig> = {
+        density: effectiveDensity,
+        seed: state.seed,
+        dissolveEnabled: state.dissolveEnabled,
+        dissolveDirection: state.dissolveDirection,
+        dissolveEdge: state.dissolveEdge,
+        dissolveWidth: state.dissolveWidth,
+        glitchEnabled: state.glitchEnabled,
+        glitchIntensity: state.glitchIntensity
+      };
+      
+      const dualCloud = generateDualFieldPointCloud(luminance, width, height, dfConfig);
+      cloud = dualCloud.combined;
     } else {
-      cloud = generateMotif(state.presetId, effectiveDensity, state.seed);
+      // Legacy single-field rendering
+      if (state.sourceMode === 'image' && currentImage) {
+        cloud = generatePointCloudFromImage(currentImage, effectiveDensity, state.seed);
+      } else if (state.sourceMode === 'text' && currentText) {
+        cloud = generatePointCloudFromText(currentText, effectiveDensity, state.seed);
+      } else {
+        cloud = generateMotif(state.presetId, effectiveDensity, state.seed);
+      }
     }
     renderer.setPointCloud(cloud);
   }
@@ -116,6 +160,21 @@
         regenerateCloud();
       }
     };
+  }
+
+  function toggleDualField() {
+    useDualField = !useDualField;
+    regenerateCloud();
+  }
+
+  function handleDissolveToggle() {
+    state.dissolveEnabled = !state.dissolveEnabled;
+    if (useDualField) regenerateCloud();
+  }
+
+  function handleGlitchToggle() {
+    state.glitchEnabled = !state.glitchEnabled;
+    if (useDualField) regenerateCloud();
   }
 
   function handleExport(scale: number) {
@@ -248,6 +307,66 @@
           <option value="high">High</option>
         </select>
       </label>
+    </div>
+    
+    <div class="control-section">
+      <h3>Dual-Field Rendering</h3>
+      <label class="toggle">
+        <input type="checkbox" checked={useDualField} on:change={toggleDualField} />
+        <span>Enable Dual-Field Mode</span>
+      </label>
+      
+      {#if useDualField}
+        <label class="toggle">
+          <input type="checkbox" checked={state.dissolveEnabled} on:change={handleDissolveToggle} />
+          <span>Dissolve Effect</span>
+        </label>
+        
+        {#if state.dissolveEnabled}
+          <label>
+            <span>Dissolve Direction: {state.dissolveDirection < 0.5 ? 'Left' : 'Right'}</span>
+            <input 
+              type="range" 
+              min="0" 
+              max="1" 
+              step="0.1" 
+              value={state.dissolveDirection}
+              on:input={handleSliderChange('dissolveDirection')}
+            />
+          </label>
+          
+          <label>
+            <span>Dissolve Edge: {(state.dissolveEdge * 100).toFixed(0)}%</span>
+            <input 
+              type="range" 
+              min="0" 
+              max="1" 
+              step="0.05" 
+              value={state.dissolveEdge}
+              on:input={handleSliderChange('dissolveEdge')}
+            />
+          </label>
+        {/if}
+        
+        <label class="toggle">
+          <input type="checkbox" checked={state.glitchEnabled} on:change={handleGlitchToggle} />
+          <span>Glitch Effect</span>
+        </label>
+        
+        {#if state.glitchEnabled}
+          <label>
+            <span>Glitch Intensity: {(state.glitchIntensity * 100).toFixed(0)}%</span>
+            <input 
+              type="range" 
+              min="0" 
+              max="1" 
+              step="0.1" 
+              value={state.glitchIntensity}
+              on:input={handleSliderChange('glitchIntensity')}
+            />
+          </label>
+        {/if}
+      {/if}
     </div>
     
     <div class="control-section">
@@ -467,6 +586,31 @@
   
   select, input[type="range"] {
     width: 100%;
+  }
+  
+  .toggle {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+  
+  .toggle input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+  }
+  
+  .toggle span {
+    font-size: 12px;
+    color: #888;
+  }
+  
+  .control-section h3 {
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: #aaa;
+    text-transform: uppercase;
+    margin: 0 0 8px 0;
   }
   
   select {
