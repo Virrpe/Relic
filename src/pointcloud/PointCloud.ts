@@ -1,5 +1,6 @@
 // Point cloud data contract
-// Packed as Float32Array: [x, y, weight, seed, ...] per particle
+// Packed as Float32Array: [x, y, weight, seed, layerType, markType] per particle (stride 6)
+// Legacy format: [x, y, weight, seed] per particle (stride 4)
 
 export interface Bounds {
   minX: number;
@@ -16,14 +17,15 @@ export interface PointCloud {
   buffer: Float32Array;
   particleCount: number;
   bounds: Bounds;
+  stride: number; // Number of floats per point (4 for legacy, 6 for new)
 }
 
-export function createPointCloud(buffer: Float32Array, particleCount: number): PointCloud {
-  const bounds = computeBounds(buffer, particleCount);
-  return { buffer, particleCount, bounds };
+export function createPointCloud(buffer: Float32Array, particleCount: number, stride: number = 4): PointCloud {
+  const bounds = computeBounds(buffer, particleCount, stride);
+  return { buffer, particleCount, bounds, stride };
 }
 
-function computeBounds(buffer: Float32Array, particleCount: number): Bounds {
+function computeBounds(buffer: Float32Array, particleCount: number, stride: number): Bounds {
   if (particleCount === 0) {
     return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0, centerX: 0, centerY: 0 };
   }
@@ -32,8 +34,8 @@ function computeBounds(buffer: Float32Array, particleCount: number): Bounds {
   let minY = Infinity, maxY = -Infinity;
 
   for (let i = 0; i < particleCount; i++) {
-    const x = buffer[i * 4];
-    const y = buffer[i * 4 + 1];
+    const x = buffer[i * stride];
+    const y = buffer[i * stride + 1];
     minX = Math.min(minX, x);
     maxX = Math.max(maxX, x);
     minY = Math.min(minY, y);

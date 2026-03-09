@@ -5,7 +5,7 @@
   import { loadImage, generatePointCloudFromImage, type ImageData } from './source/ImageIngestion';
   import { renderText, generatePointCloudFromText, type TextData } from './source/TextMask';
   import { generateMapsFromPreset, generateMapsFromMotifPack } from './source/MotifProcessor';
-  import { generateDualFieldPointCloud, type DualFieldConfig } from './pointcloud/DualFieldPointCloud';
+  import { generateDualFieldPointCloud, generateDualFieldPointCloudFromMaps, type DualFieldConfig } from './pointcloud/DualFieldPointCloud';
   import { loadMotifPack, loadGrayImage, type MotifPack, type PlateUploadSlots, type DiagnosticView, createEmptyPlateSlots, createPreviewCanvas } from './source/MotifPack';
   import { DEFAULT_RENDER_STATE, type RenderState } from './state/RenderState';
   import { PRESETS, getPreset } from './presets/index';
@@ -64,18 +64,23 @@
         luminance = currentText.luminance;
         width = currentText.width;
         height = currentText.height;
-      } else if (state.sourceMode === 'motif-pack' && currentMotifPack) {
+      let maps;
+      let useMapsDirectly = false;
+      
+      if (state.sourceMode === 'motif-pack' && currentMotifPack) {
         // Use motif pack - generate maps from pack plates
-        const maps = generateMapsFromMotifPack(currentMotifPack);
-        luminance = maps.structural;
-        width = maps.width;
-        height = maps.height;
-      } else {
+        maps = generateMapsFromMotifPack(currentMotifPack);
+        useMapsDirectly = true;
+      } else if (state.sourceMode === 'preset') {
         // Generate from preset
-        const maps = generateMapsFromPreset(state.presetId, state.seed);
-        luminance = maps.structural;
-        width = maps.width;
-        height = maps.height;
+        maps = generateMapsFromPreset(state.presetId, state.seed);
+        useMapsDirectly = true;
+      } else if (state.sourceMode === 'image' && currentImage) {
+        maps = generateMapsFromPreset('skull', state.seed); // Use default
+        useMapsDirectly = true;
+      } else {
+        maps = generateMapsFromPreset('skull', state.seed);
+        useMapsDirectly = true;
       }
       
       const dfConfig: Partial<DualFieldConfig> = {
@@ -86,10 +91,15 @@
         dissolveEdge: state.dissolveEdge,
         dissolveWidth: state.dissolveWidth,
         glitchEnabled: state.glitchEnabled,
-        glitchIntensity: state.glitchIntensity
+        glitchIntensity: state.glitchIntensity,
+        // Set the skull preset ratios
+        structuralRatio: 0.45,
+        toneRatio: 0.45,
+        accentRatio: 0.07,
+        atmosphereRatio: 0.03
       };
       
-      const dualCloud = generateDualFieldPointCloud(luminance, width, height, dfConfig);
+      const dualCloud = generateDualFieldPointCloudFromMaps(maps, dfConfig);
       cloud = dualCloud.combined;
     } else {
       // Legacy single-field rendering

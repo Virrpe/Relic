@@ -6,6 +6,12 @@ import type { Bounds } from '../pointcloud/PointCloud';
 export interface MotifMaps {
   // Structural mask: binary-ish map of where the motif exists
   structural: Float32Array;
+  // Tone map: dirty tonal body / density modulation
+  tone: Float32Array;
+  // Accent map: sparse focal highlights / edge anchor zones
+  accent: Float32Array;
+  // Atmosphere map: atmosphere seed / dust distribution
+  atmosphere: Float32Array;
   // Edge map: outlines/contours of the motif
   edge: Float32Array;
   // Distance map: distance from edge (negative = inside, positive = outside)
@@ -36,11 +42,16 @@ export function generateMapsFromLuminance(
   // Compute structural mask (thresholded luminance)
   const structural = computeStructuralMask(luminance, width, height);
   
-  // Compute edge map using Sobel operator
-  const edge = computeEdgeMap(structural, width, height);
+  // Compute tone map (dirty tonal body)
+  const tone = computeToneMap(luminance, width, height);
   
-  // Compute distance map (signed distance from edge)
+  // Compute accent map (sparse focal highlights from edges)
+  const edge = computeEdgeMap(structural, width, height);
+  const accent = computeAccentMap(edge, structural, width, height);
+  
+  // Compute atmosphere map (atmosphere seed from distance)
   const distance = computeDistanceMap(structural, width, height);
+  const atmosphere = computeAtmosphereMap(distance, edge, width, height);
   
   // Detect protected zones from the motif
   const protectedZones = detectProtectedZones(luminance, width, height);
@@ -49,6 +60,9 @@ export function generateMapsFromLuminance(
   
   return {
     structural,
+    tone,
+    accent,
+    atmosphere,
     edge,
     distance,
     protectedZones,
@@ -69,6 +83,70 @@ function computeStructuralMask(luminance: Float32Array, width: number, height: n
   }
   
   return structural;
+}
+
+// Compute tone map (dirty tonal body / density modulation)
+// Uses luminance with some variation for visual interest
+function computeToneMap(luminance: Float32Array, width: number, height: number): Float32Array {
+  const tone = new Float32Array(width * height);
+  const threshold = 0.1;
+  
+  for (let i = 0; i < luminance.length; i++) {
+    const l = luminance[i];
+    // Tone is the raw luminance, but with slight smoothing
+    // Values below threshold become 0 (empty space)
+    tone[i] = l > threshold ? l : 0;
+  }
+  
+  return tone;
+}
+
+// Compute accent map (sparse focal highlights from edges)
+function computeAccentMap(edge: Float32Array, structural: Float32Array, width: number, height: number): Float32Array {
+  const accent = new Float32Array(width * height);
+  
+  // Accent is highest where there's strong edge AND inside the structural area
+  // This creates focal points at edges
+  for (let i = 0; i < edge.length; i++) {
+    const e = edge[i];
+    const s = structural[i];
+    
+    // Only accent inside or very near the structure
+    // Edges get high accent, but sparsely
+    if (s > 0.3) {
+      // Apply threshold to make accent sparse
+      accent[i] = e > 0.2 ? e * s * 0.8 : 0;
+    } else {
+      accent[i] = 0;
+    }
+  }
+  
+  return accent;
+}
+
+// Compute atmosphere map (atmosphere seed from distance)
+// Atmosphere exists outside the main structure, concentrated near edges
+function computeAtmosphereMap(distance: Float32Array, edge: Float32Array, width: number, height: number): Float32Array {
+  const atmosphere = new Float32Array(width * height);
+  
+  for (let i = 0; i < distance.length; i++) {
+    const d = distance[i];
+    const e = edge[i];
+    
+    // Atmosphere exists outside (d > 0) and near edges
+    // Also some atmosphere right at the edge boundary
+    if (d > 0) {
+      // Near edge: high atmosphere
+      // Far from edge: low atmosphere
+      const nearEdgeFactor = Math.max(0, 1 - d * 3);
+      atmosphere[i] = nearEdgeFactor * 0.5 + e * 0.3;
+    } else {
+      // Inside the structure: minimal atmosphere
+      atmosphere[i] = 0;
+    }
+  }
+  
+  return atmosphere;
 }
 
 // Compute edge map using Sobel operator
