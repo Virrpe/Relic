@@ -600,8 +600,129 @@
             <option value={DEBUG_VIEWS.ATMO}>Atmo Field</option>
             <option value={DEBUG_VIEWS.EDGE}>Edge Field</option>
             <option value={DEBUG_VIEWS.EROSION}>Erosion Mask</option>
+            <option value={DEBUG_VIEWS.COMPOSITE_STYLIZED}>Composite + Stylization</option>
           </select>
         </label>
+        
+        <!-- Field Erosion -->
+        <label>
+          <span>Field Erosion: {(state.fieldErosionAmount * 100).toFixed(0)}%</span>
+          <input 
+            type="range" 
+            min="0" 
+            max="1" 
+            step="0.05" 
+            value={state.fieldErosionAmount}
+            on:input={handleSliderChange('fieldErosionAmount')}
+          />
+        </label>
+        
+        <!-- Phase 3: Pixel Stylization -->
+        <h4>Pixel Stylization</h4>
+        <label>
+          <span>Pixel Size: {state.fieldPixelSize.toFixed(1)}</span>
+          <input 
+            type="range" 
+            min="1" 
+            max="8" 
+            step="0.5" 
+            value={state.fieldPixelSize}
+            on:input={handleSliderChange('fieldPixelSize')}
+          />
+        </label>
+        
+        <label class="toggle">
+          <input type="checkbox" checked={state.fieldPixelQuantize} on:change={() => state.fieldPixelQuantize = !state.fieldPixelQuantize} />
+          <span>Color Quantization</span>
+        </label>
+        
+        <label>
+          <span>Edge Breakup: {(state.fieldEdgeBreakup * 100).toFixed(0)}%</span>
+          <input 
+            type="range" 
+            min="0" 
+            max="1" 
+            step="0.1" 
+            value={state.fieldEdgeBreakup}
+            on:input={handleSliderChange('fieldEdgeBreakup')}
+          />
+        </label>
+        
+        <!-- Phase 4: Field Dissolve -->
+        <h4>Field Dissolve</h4>
+        <label class="toggle">
+          <input type="checkbox" checked={state.fieldDissolveEnabled} on:change={() => state.fieldDissolveEnabled = !state.fieldDissolveEnabled} />
+          <span>Enable Dissolve</span>
+        </label>
+        
+        {#if state.fieldDissolveEnabled}
+          <label>
+            <span>Dissolve Direction</span>
+            <select bind:value={state.fieldDissolveDirection}>
+              <option value="left-right">Left to Right</option>
+              <option value="right-left">Right to Left</option>
+              <option value="bottom-top">Bottom to Top</option>
+              <option value="top-bottom">Top to Bottom</option>
+            </select>
+          </label>
+          
+          <label>
+            <span>Dissolve Edge: {(state.fieldDissolveEdge * 100).toFixed(0)}%</span>
+            <input 
+              type="range" 
+              min="0" 
+              max="1" 
+              step="0.05" 
+              value={state.fieldDissolveEdge}
+              on:input={handleSliderChange('fieldDissolveEdge')}
+            />
+          </label>
+          
+          <label>
+            <span>Dissolve Width: {(state.fieldDissolveWidth * 100).toFixed(0)}%</span>
+            <input 
+              type="range" 
+              min="0.05" 
+              max="0.5" 
+              step="0.05" 
+              value={state.fieldDissolveWidth}
+              on:input={handleSliderChange('fieldDissolveWidth')}
+            />
+          </label>
+        {/if}
+        
+        <!-- Phase 4: Field Glitch -->
+        <h4>Field Glitch</h4>
+        <label class="toggle">
+          <input type="checkbox" checked={state.fieldGlitchEnabled} on:change={() => state.fieldGlitchEnabled = !state.fieldGlitchEnabled} />
+          <span>Enable Glitch</span>
+        </label>
+        
+        {#if state.fieldGlitchEnabled}
+          <label>
+            <span>Glitch Intensity: {(state.fieldGlitchIntensity * 100).toFixed(0)}%</span>
+            <input 
+              type="range" 
+              min="0" 
+              max="1" 
+              step="0.1" 
+              value={state.fieldGlitchIntensity}
+              on:input={handleSliderChange('fieldGlitchIntensity')}
+            />
+          </label>
+          
+          <label>
+            <span>Block Size: {state.fieldGlitchBlockSize.toFixed(0)}</span>
+            <input 
+              type="range" 
+              min="5" 
+              max="50" 
+              step="5" 
+              value={state.fieldGlitchBlockSize}
+              on:input={handleSliderChange('fieldGlitchBlockSize')}
+            />
+          </label>
+        {/if}
       {/if}
     </div>
     

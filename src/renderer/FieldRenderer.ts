@@ -15,7 +15,8 @@ export const DEBUG_VIEWS = {
   ACCENT: 4,
   ATMO: 5,
   EDGE: 6,
-  EROSION: 7
+  EROSION: 7,
+  COMPOSITE_STYLIZED: 8
 } as const;
 
 export type DebugView = typeof DEBUG_VIEWS[keyof typeof DEBUG_VIEWS];
@@ -37,6 +38,25 @@ export class FieldRenderer {
   private uDebugView: WebGLUniformLocation | null = null;
   private uFieldErosionAmount: WebGLUniformLocation | null = null;
   private uFieldErosionSeed: WebGLUniformLocation | null = null;
+  
+  // Phase 3: Pixel stylization uniforms
+  private uFieldPixelSize: WebGLUniformLocation | null = null;
+  private uFieldPixelQuantize: WebGLUniformLocation | null = null;
+  private uFieldBlockDisplace: WebGLUniformLocation | null = null;
+  private uFieldEdgeBreakup: WebGLUniformLocation | null = null;
+  
+  // Phase 4: Dissolve uniforms
+  private uFieldDissolveEnabled: WebGLUniformLocation | null = null;
+  private uFieldDissolveDirection: WebGLUniformLocation | null = null;
+  private uFieldDissolveEdge: WebGLUniformLocation | null = null;
+  private uFieldDissolveWidth: WebGLUniformLocation | null = null;
+  private uFieldDissolveNoise: WebGLUniformLocation | null = null;
+  
+  // Phase 4: Glitch uniforms
+  private uFieldGlitchEnabled: WebGLUniformLocation | null = null;
+  private uFieldGlitchIntensity: WebGLUniformLocation | null = null;
+  private uFieldGlitchBlockSize: WebGLUniformLocation | null = null;
+  private uFieldGlitchSpeed: WebGLUniformLocation | null = null;
   
   // Debug view state
   private debugView: number = DEBUG_VIEWS.FINAL;
@@ -96,6 +116,25 @@ export class FieldRenderer {
     this.uDebugView = gl.getUniformLocation(this.program, 'uDebugView');
     this.uFieldErosionAmount = gl.getUniformLocation(this.program, 'uFieldErosionAmount');
     this.uFieldErosionSeed = gl.getUniformLocation(this.program, 'uFieldErosionSeed');
+    
+    // Phase 3: Pixel stylization
+    this.uFieldPixelSize = gl.getUniformLocation(this.program, 'uFieldPixelSize');
+    this.uFieldPixelQuantize = gl.getUniformLocation(this.program, 'uFieldPixelQuantize');
+    this.uFieldBlockDisplace = gl.getUniformLocation(this.program, 'uFieldBlockDisplace');
+    this.uFieldEdgeBreakup = gl.getUniformLocation(this.program, 'uFieldEdgeBreakup');
+    
+    // Phase 4: Dissolve
+    this.uFieldDissolveEnabled = gl.getUniformLocation(this.program, 'uFieldDissolveEnabled');
+    this.uFieldDissolveDirection = gl.getUniformLocation(this.program, 'uFieldDissolveDirection');
+    this.uFieldDissolveEdge = gl.getUniformLocation(this.program, 'uFieldDissolveEdge');
+    this.uFieldDissolveWidth = gl.getUniformLocation(this.program, 'uFieldDissolveWidth');
+    this.uFieldDissolveNoise = gl.getUniformLocation(this.program, 'uFieldDissolveNoise');
+    
+    // Phase 4: Glitch
+    this.uFieldGlitchEnabled = gl.getUniformLocation(this.program, 'uFieldGlitchEnabled');
+    this.uFieldGlitchIntensity = gl.getUniformLocation(this.program, 'uFieldGlitchIntensity');
+    this.uFieldGlitchBlockSize = gl.getUniformLocation(this.program, 'uFieldGlitchBlockSize');
+    this.uFieldGlitchSpeed = gl.getUniformLocation(this.program, 'uFieldGlitchSpeed');
     
     // Create full-screenErosionSeed = quad VAO
     this.createFullScreenQuad();
@@ -223,6 +262,31 @@ export class FieldRenderer {
     // Set erosion parameters
     gl.uniform1f(this.uFieldErosionAmount, this.erosionAmount);
     gl.uniform1f(this.uFieldErosionSeed, this.erosionSeed);
+    
+    // Set Phase 3: Pixel stylization parameters
+    gl.uniform1f(this.uFieldPixelSize, state.fieldPixelSize);
+    gl.uniform1f(this.uFieldPixelQuantize, state.fieldPixelQuantize ? 1.0 : 0.0);
+    gl.uniform1f(this.uFieldBlockDisplace, state.fieldBlockDisplace);
+    gl.uniform1f(this.uFieldEdgeBreakup, state.fieldEdgeBreakup);
+    
+    // Set Phase 4: Dissolve parameters
+    // Convert direction string to float
+    let dissolveDirection = 0;
+    if (state.fieldDissolveDirection === 'right-left') dissolveDirection = 0.25;
+    else if (state.fieldDissolveDirection === 'bottom-top') dissolveDirection = 0.5;
+    else if (state.fieldDissolveDirection === 'top-bottom') dissolveDirection = 0.75;
+    
+    gl.uniform1f(this.uFieldDissolveEnabled, state.fieldDissolveEnabled ? 1.0 : 0.0);
+    gl.uniform1f(this.uFieldDissolveDirection, dissolveDirection);
+    gl.uniform1f(this.uFieldDissolveEdge, state.fieldDissolveEdge);
+    gl.uniform1f(this.uFieldDissolveWidth, state.fieldDissolveWidth);
+    gl.uniform1f(this.uFieldDissolveNoise, state.fieldDissolveNoise);
+    
+    // Set Phase 4: Glitch parameters
+    gl.uniform1f(this.uFieldGlitchEnabled, state.fieldGlitchEnabled ? 1.0 : 0.0);
+    gl.uniform1f(this.uFieldGlitchIntensity, state.fieldGlitchIntensity);
+    gl.uniform1f(this.uFieldGlitchBlockSize, state.fieldGlitchBlockSize);
+    gl.uniform1f(this.uFieldGlitchSpeed, state.fieldGlitchSpeed);
     
     // Draw full-screen quad
     gl.bindVertexArray(this.vao);
