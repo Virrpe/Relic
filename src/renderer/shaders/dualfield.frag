@@ -34,21 +34,59 @@ float getDissolveFactor(float nx, float edge, float width) {
 }
 
 void main() {
-  // Circular point shape
-  vec2 coord = gl_PointCoord - vec2(0.5);
-  float dist = length(coord);
-  if (dist > 0.5) discard;
+  // Pixel-like point shape - harder edges instead of soft circles
+  vec2 coord = gl_PointCoord;
   
-  // Soft edge
-  float alpha = 1.0 - smoothstep(0.3, 0.5, dist);
+  // Quantize to create blocky pixel effect
+  // Use 3x3 grid pattern for variation
+  vec2 pixelCoord = floor(coord * 3.0) / 3.0;
+  
+  // Square point shape with slight variation based on layer
+  // Different layers get different "pixel" sizes
+  float pointSize;
+  if (vLayerType < 0.5) {
+    // Structural: medium square blocks
+    pointSize = 0.85;
+  } else if (vLayerType < 1.5) {
+    // Body/Tone: smaller gritty grains
+    pointSize = 0.7;
+  } else if (vLayerType < 2.5) {
+    // Accent: tiny sharp pixels
+    pointSize = 0.6;
+  } else {
+    // Atmospheric: medium-small dust
+    pointSize = 0.75;
+  }
+  
+  // Hard edge - no soft falloff
+  vec2 distFromCenter = abs(pixelCoord - 0.5) * 2.0;
+  float maxDist = max(distFromCenter.x, distFromCenter.y);
+  
+  // Quantized/aliased edge for pixel feel
+  if (maxDist > pointSize) discard;
+  
+  // Sharp alpha - no soft edges
+  float alpha = 1.0;
+  
+  // Add slight shape variation based on seed
+  float seedVariation = fract(vSeed * 127.1);
+  if (seedVariation > 0.85) {
+    // Occasional rectangular shard for accent layers
+    if (vLayerType > 0.5 && vLayerType < 2.5) {
+      // Elongate slightly
+      alpha = distFromCenter.x < pointSize * 1.2 && distFromCenter.y < pointSize * 0.8 ? 1.0 : 0.0;
+      if (alpha < 0.5) discard;
+    }
+  }
   
   // Get cyclic time
   float cyclicTime = mod(uTime, uLoopDuration);
   
   // Layer-based coloring
   // Structural (0): Core motif colors - bone/white tones
-  // Atmospheric (1): Dust/atmosphere - darker, cooler tones  
+  // Body/Tone (1): Dirty tonal mass - warmer darker tones
   // Accent (2): Highlights - brighter, warmer tones
+  // Atmospheric (3): Dust/atmosphere - darker, cooler tones
   
   float layerType = vLayerType;
   
@@ -63,24 +101,29 @@ void main() {
   float finalLuminance = contrasted * uBrightness;
   finalLuminance = clamp(finalLuminance, 0.0, 1.0);
   
-  // Color palette - layer dependent
+  // Color palette - layer dependent (4 layers now)
   vec3 darkColor, midColor, brightColor;
   
   if (layerType < 0.5) {
-    // Structural - bone white
+    // Structural (0) - bone white, driven by structure plate
     darkColor = vec3(0.02, 0.02, 0.05);    // Deep black-blue
     midColor = vec3(0.15, 0.12, 0.1);      // Warm dark gray
     brightColor = vec3(0.75, 0.7, 0.65);  // Bone white
   } else if (layerType < 1.5) {
-    // Atmospheric - cool dust tones
-    darkColor = vec3(0.01, 0.02, 0.04);    // Very dark blue
-    midColor = vec3(0.08, 0.1, 0.12);     // Cool dark gray
-    brightColor = vec3(0.35, 0.38, 0.4);  // Dusty gray
-  } else {
-    // Accent - warm highlights
+    // Body/Tone (1) - dirty tonal mass, driven by tone plate
+    darkColor = vec3(0.03, 0.025, 0.02);   // Dark brown-black
+    midColor = vec3(0.2, 0.15, 0.1);       // Dirty brown
+    brightColor = vec3(0.5, 0.4, 0.3);    // Dirty tan
+  } else if (layerType < 2.5) {
+    // Accent (2) - sparse focal highlights, driven by accent plate
     darkColor = vec3(0.15, 0.08, 0.05);   // Dark rust
     midColor = vec3(0.35, 0.2, 0.12);     // Warm brown
     brightColor = vec3(0.9, 0.75, 0.5);   // Golden highlight
+  } else {
+    // Atmospheric (3) - dust/atmosphere, driven by atmo plate
+    darkColor = vec3(0.01, 0.02, 0.04);    // Very dark blue
+    midColor = vec3(0.08, 0.1, 0.12);     // Cool dark gray
+    brightColor = vec3(0.35, 0.38, 0.4);  // Dusty gray
   }
   
   vec3 color;
@@ -113,9 +156,9 @@ void main() {
     alpha *= 1.0 - dissolveFactor * 0.8;
   }
   
-  // Extra fade for atmospheric points
-  if (layerType > 0.5 && layerType < 1.5) {
-    alpha *= 0.7;
+  // Extra fade for atmospheric points (layer 3)
+  if (layerType > 2.5) {
+    alpha *= 0.6;
   }
   
   fragColor = vec4(color, alpha);

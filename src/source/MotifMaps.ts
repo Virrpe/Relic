@@ -15,6 +15,18 @@ export interface MotifMaps {
   width: number;
   height: number;
   bounds: Bounds;
+  
+  // Optional semantic plate data (for motif-pack mode)
+  // Tone: dirty tonal body / density modulation
+  tone?: Float32Array;
+  // Accent: sparse focal highlight / glitch eligibility
+  accent?: Float32Array;
+  // Atmo: optional atmosphere seed map
+  atmo?: Float32Array;
+  // Alpha: hard occupancy truth
+  alpha?: Float32Array;
+  // Structure: structural importance map
+  structure?: Float32Array;
 }
 
 export interface ProtectedZone {

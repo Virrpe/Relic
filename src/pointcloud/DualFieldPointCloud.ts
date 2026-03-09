@@ -1,10 +1,13 @@
-// DualFieldPointCloud: Generates three point layers for dual-field rendering
-// - Structural: core motif points that should remain readable
-// - Atmospheric: ambient particles for Yudho-like dirty atmosphere
-// - Accent: highlight points for visual interest
+// DualFieldPointCloud: Generates point layers for dual-field rendering
+// With motif-pack support: distinct populations from semantic plates
+// - Structural: driven by structure plate (inside alpha)
+// - Body/Tone: driven by tone plate (inside alpha)  
+// - Accent: driven by accent plate (sparse focal highlights)
+// - Atmospheric: driven by atmo plate (can be outside alpha)
 
 import { createPointCloud, type PointCloud } from './PointCloud';
 import { type MotifMaps, isPointProtected, getDissolveFactor, generateMapsFromLuminance } from '../source/MotifMaps';
+import { type MotifPack } from '../source/MotifPack';
 
 // Seeded random number generator
 function seededRandom(seed: number): () => number {
@@ -20,16 +23,22 @@ export interface DualFieldConfig {
   density: number;
   seed: number;
   
-  // Layer ratios (should sum to ~1)
-  structuralRatio: number;    // Core motif points
-  atmosphericRatio: number;   // Ambient/dust particles
-  accentRatio: number;       // Highlight points
+  // Layer ratios for motif-pack mode (should sum to ~1)
+  structuralRatio: number;    // Structural points (driven by structure plate)
+  bodyRatio: number;         // Body/Tone points (driven by tone plate)
+  atmosphericRatio: number;  // Ambient/dust particles (driven by atmo plate)
+  accentRatio: number;       // Accent points (driven by accent plate)
+  
+  // Legacy ratios (used for non-motif-pack)
+  structuralRatioLegacy: number;    // Core motif points (legacy mode)
+  atmosphericRatioLegacy: number;   // Ambient/dust particles (legacy mode)
+  accentRatioLegacy: number;        // Highlight points (legacy mode)
   
   // Dissolve settings
   dissolveEnabled: boolean;
   dissolveDirection: number; // 0-1 (0=left, 1=right)
   dissolveEdge: number;      // 0-1 position of dissolve line
-  dissolveWidth: number;     // 0-1 width of transition zone
+  dissolveWidth: number;    // 0-1 width of transition zone
   
   // Glitch settings
   glitchEnabled: boolean;
@@ -39,9 +48,15 @@ export interface DualFieldConfig {
 export const DEFAULT_DUAL_FIELD_CONFIG: DualFieldConfig = {
   density: 0.5,
   seed: 42,
-  structuralRatio: 0.6,
-  atmosphericRatio: 0.3,
-  accentRatio: 0.1,
+  // Motif-pack mode ratios (4 populations)
+  structuralRatio: 0.45,    // Structure plate driven
+  bodyRatio: 0.30,         // Tone plate driven
+  accentRatio: 0.10,       // Accent plate driven
+  atmosphericRatio: 0.15,  // Atmo plate driven
+  // Legacy ratios (3 populations for preset/image/text)
+  structuralRatioLegacy: 0.6,
+  atmosphericRatioLegacy: 0.3,
+  accentRatioLegacy: 0.1,
   dissolveEnabled: false,
   dissolveDirection: 0.5,
   dissolveEdge: 0.5,
@@ -55,20 +70,208 @@ export interface DualFieldPointCloud {
   combined: PointCloud;
   
   // Individual layers (for debugging/analysis)
-  structural: PointCloud;
-  atmospheric: PointCloud;
-  accent: PointCloud;
+  // Motif-pack mode: 4 populations
+  structural: PointCloud;  // Structure plate driven
+  body: PointCloud;       // Tone plate driven
+  accent: PointCloud;     // Accent plate driven
+  atmospheric: PointCloud; // Atmo plate driven
+  
+  // Legacy mode: 3 populations
+  structuralLegacy: PointCloud;
+  atmosphericLegacy: PointCloud;
+  accentLegacy: PointCloud;
   
   // Metadata
   config: DualFieldConfig;
   maps: MotifMaps | null;
+  isMotifPackMode: boolean;
+  
+  // Point counts for diagnostics
+  pointCounts: {
+    structural: number;
+    body: number;
+    accent: number;
+    atmospheric: number;
+    total: number;
+  };
 }
 
 // Point data format: [x, y, weight, seed, layerType]
-// layerType: 0 = structural, 1 = atmospheric, 2 = accent
+// Motif-pack mode layer types:
+// 0 = structural (structure plate)
+// 1 = body/tone (tone plate)
+// 2 = accent (accent plate)
+// 3 = atmospheric (atmo plate)
+//
+// Legacy mode layer types:
+// 0 = structural (inside motif)
+// 1 = atmospheric (outside/edge)
+// 2 = accent (edge highlights)
 const LAYER_STRUCTURAL = 0;
-const LAYER_ATMOSPHERIC = 1;
+const LAYER_BODY = 1;
 const LAYER_ACCENT = 2;
+const LAYER_ATMOSPHERIC = 3;
+
+// Generate point cloud from MotifPack - uses all semantic plates
+export function generateDualFieldPointCloudFromMotifPack(
+  maps: MotifMaps,
+  config: Partial<DualFieldConfig> = {}
+): DualFieldPointCloud {
+  const cfg = { ...DEFAULT_DUAL_FIELD_CONFIG, ...config };
+  const random = seededRandom(cfg.seed);
+  
+  const { width, height, structural: structMap, edge: edgeMap, distance: distMap, alpha, structure: structPlate, tone: tonePlate, accent: accentPlate, atmo: atmoPlate } = maps;
+  
+  // Calculate grid size based on density
+  const baseGrid = Math.floor(30 + cfg.density * 120);
+  const gridSize = Math.min(baseGrid, 150);
+  
+  // Collect points for each population
+  const structuralPts: number[] = [];
+  const bodyPts: number[] = [];
+  const accentPts: number[] = [];
+  const atmosphericPts: number[] = [];
+  
+  // Aspect ratio for coordinate mapping
+  const aspectRatio = width / height;
+  
+  // Alpha threshold for hard occupancy gate
+  const alphaThreshold = 0.15;
+  
+  for (let gy = 0; gy < gridSize; gy++) {
+    for (let gx = 0; gx < gridSize; gx++) {
+      // Jittered sampling
+      const jx = (gx + random()) / gridSize;
+      const jy = (gy + random()) / gridSize;
+      
+      // Map to image coordinates
+      const ix = Math.floor(jx * width);
+      const iy = Math.floor(jy * height);
+      const imgIdx = iy * width + ix;
+      
+      // Get plate values
+      const alphaVal = alpha ? alpha[imgIdx] : (structMap[imgIdx] > alphaThreshold ? 1 : 0);
+      const structVal = structPlate ? structPlate[imgIdx] : structMap[imgIdx];
+      const toneVal = tonePlate ? tonePlate[imgIdx] : structMap[imgIdx];
+      const accentVal = accentPlate ? accentPlate[imgIdx] : 0;
+      const atmoVal = atmoPlate ? atmoPlate[imgIdx] : 0;
+      const edgeVal = edgeMap[imgIdx];
+      const distVal = distMap[imgIdx];
+      
+      // Normalized coordinates (-1 to 1)
+      const nx = (jx - 0.5) * 1.8 * Math.min(1, aspectRatio);
+      const ny = (jy - 0.5) * 1.8;
+      
+      // Dissolve factor
+      const dissolve = cfg.dissolveEnabled 
+        ? getDissolveFactor(nx, cfg.dissolveDirection, cfg.dissolveEdge, cfg.dissolveWidth)
+        : 0;
+      
+      // Check if in protected zone
+      const erosionStrength = dissolve;
+      const isProtected = isPointProtected(jx, jy, maps.protectedZones, erosionStrength);
+      
+      // ALPHA IS HARD GATE - non-atmosphere points must be inside alpha
+      const insideAlpha = alphaVal > 0.5;
+      
+      // === STRUCTURAL POINTS (driven by structure plate) ===
+      // Must be inside alpha, driven by structure values
+      if (insideAlpha && structVal > 0.1) {
+        const inclusionChance = structVal * cfg.density * 0.9 + 0.02;
+        if (random() < inclusionChance) {
+          const px = nx + (random() - 0.5) * 0.012;
+          const py = ny + (random() - 0.5) * 0.012;
+          const weight = structVal * 0.9 + random() * 0.1;
+          structuralPts.push(px, py, weight, random(), LAYER_STRUCTURAL);
+        }
+      }
+      
+      // === BODY/TONE POINTS (driven by tone plate) ===
+      // Must be inside alpha, driven by tone values - gives dirty tonal mass
+      if (insideAlpha && toneVal > 0.05) {
+        const inclusionChance = toneVal * cfg.density * 0.7 + 0.01;
+        if (random() < inclusionChance) {
+          const px = nx + (random() - 0.5) * 0.018;
+          const py = ny + (random() - 0.5) * 0.018;
+          const weight = toneVal * 0.85 + random() * 0.15;
+          bodyPts.push(px, py, weight, random(), LAYER_BODY);
+        }
+      }
+      
+      // === ACCENT POINTS (driven by accent plate) ===
+      // Sparse, inside alpha, driven by accent values - focal highlights
+      if (insideAlpha && accentVal > 0.1) {
+        const inclusionChance = accentVal * cfg.density * 0.25 + 0.005;
+        if (random() < inclusionChance) {
+          const px = nx + (random() - 0.5) * 0.008;
+          const py = ny + (random() - 0.5) * 0.008;
+          // Accents are brighter
+          const weight = Math.min(1, accentVal * 1.2 + 0.3);
+          accentPts.push(px, py, weight, random(), LAYER_ACCENT);
+        }
+      }
+      
+      // === ATMOSPHERE POINTS (driven by atmo plate) ===
+      // Can be outside alpha, driven by atmo values - peripheral debris
+      // Also generate some at edge spillover
+      let atmoChance = atmoVal * cfg.density * 0.4 + 0.01;
+      
+      // Add edge spillover - atmosphere near alpha boundary
+      if (!insideAlpha && Math.abs(distVal) < 0.08) {
+        atmoChance += (0.08 - Math.abs(distVal)) * 2 * cfg.density * 0.15;
+      }
+      
+      if (atmoChance > 0 && random() < atmoChance) {
+        const px = nx + (random() - 0.5) * 0.025;
+        const py = ny + (random() - 0.5) * 0.025;
+        const weight = (atmoVal > 0 ? atmoVal : Math.max(0, 0.3 - Math.abs(distVal) * 3)) * 0.6 + random() * 0.2;
+        atmosphericPts.push(px, py, Math.max(0.05, weight), random(), LAYER_ATMOSPHERIC);
+      }
+    }
+  }
+  
+  // Create point clouds for each population
+  const structuralCloud = createLayerPointCloud(structuralPts, LAYER_STRUCTURAL);
+  const bodyCloud = createLayerPointCloud(bodyPts, LAYER_BODY);
+  const accentCloud = createLayerPointCloud(accentPts, LAYER_ACCENT);
+  const atmosphericCloud = createLayerPointCloud(atmosphericPts, LAYER_ATMOSPHERIC);
+  
+  // Combine all populations
+  const combinedPoints = [
+    ...structuralPts,
+    ...bodyPts,
+    ...accentPts,
+    ...atmosphericPts
+  ];
+  const combined = createPointCloud(
+    new Float32Array(combinedPoints),
+    combinedPoints.length / 5
+  );
+  
+  const pointCounts = {
+    structural: structuralPts.length / 5,
+    body: bodyPts.length / 5,
+    accent: accentPts.length / 5,
+    atmospheric: atmosphericPts.length / 5,
+    total: combinedPoints.length / 5
+  };
+  
+  return {
+    combined,
+    structural: structuralCloud,
+    body: bodyCloud,
+    accent: accentCloud,
+    atmospheric: atmosphericCloud,
+    // Legacy compatibility
+    structuralLegacy: structuralCloud,
+    atmosphericLegacy: atmosphericCloud,
+    accentLegacy: accentCloud,
+    config: cfg,
+    maps,
+    isMotifPackMode: true,
+    pointCounts
+  };
+}
 
 export function generateDualFieldPointCloud(
   luminance: Float32Array,
@@ -167,9 +370,9 @@ export function generateDualFieldPointCloud(
   }
   
   // Create point clouds for each layer
-  const structural = createLayerPointCloud(structuralPoints, LAYER_STRUCTURAL);
-  const atmospheric = createLayerPointCloud(atmosphericPoints, LAYER_ATMOSPHERIC);
-  const accent = createLayerPointCloud(accentPoints, LAYER_ACCENT);
+  const structuralCloud = createLayerPointCloud(structuralPoints, LAYER_STRUCTURAL);
+  const atmosphericCloud = createLayerPointCloud(atmosphericPoints, LAYER_ATMOSPHERIC);
+  const accentCloud = createLayerPointCloud(accentPoints, LAYER_ACCENT);
   
   // Combine all layers into single buffer
   const combinedPoints = [
@@ -182,13 +385,29 @@ export function generateDualFieldPointCloud(
     combinedPoints.length / 5
   );
   
+  // Legacy mode point counts
+  const pointCounts = {
+    structural: structuralPoints.length / 5,
+    body: 0,
+    accent: accentPoints.length / 5,
+    atmospheric: atmosphericPoints.length / 5,
+    total: combinedPoints.length / 5
+  };
+  
   return {
     combined,
-    structural,
-    atmospheric,
-    accent,
+    structural: structuralCloud,
+    body: createPointCloud(new Float32Array(0), 0),
+    accent: accentCloud,
+    atmospheric: atmosphericCloud,
+    // Legacy compatibility
+    structuralLegacy: structuralCloud,
+    atmosphericLegacy: atmosphericCloud,
+    accentLegacy: accentCloud,
     config: cfg,
-    maps
+    maps,
+    isMotifPackMode: false,
+    pointCounts
   };
 }
 

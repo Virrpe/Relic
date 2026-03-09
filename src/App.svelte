@@ -5,7 +5,7 @@
   import { loadImage, generatePointCloudFromImage, type ImageData } from './source/ImageIngestion';
   import { renderText, generatePointCloudFromText, type TextData } from './source/TextMask';
   import { generateMapsFromPreset, generateMapsFromMotifPack } from './source/MotifProcessor';
-  import { generateDualFieldPointCloud, type DualFieldConfig } from './pointcloud/DualFieldPointCloud';
+  import { generateDualFieldPointCloud, generateDualFieldPointCloudFromMotifPack, type DualFieldConfig } from './pointcloud/DualFieldPointCloud';
   import { loadMotifPack, loadGrayImage, type MotifPack, type PlateUploadSlots, type DiagnosticView, createEmptyPlateSlots, createPreviewCanvas } from './source/MotifPack';
   import { DEFAULT_RENDER_STATE, type RenderState } from './state/RenderState';
   import { PRESETS, getPreset } from './presets/index';
@@ -33,6 +33,69 @@
   let plateSlots: PlateUploadSlots = createEmptyPlateSlots();
   let diagnosticView: DiagnosticView = 'full';
   let previewCanvases: Record<string, HTMLCanvasElement> = {};
+  
+  // Debug/diagnostic state for motif-pack mode
+  type PointDebugView = 'composite' | 'alpha' | 'structure' | 'tone' | 'accent' | 'atmo' | 'structural-pts' | 'body-pts' | 'accent-pts' | 'atmo-pts';
+  let debugView: PointDebugView = 'composite';
+  let showDebugPanel = false;
+  
+  // Numeric diagnostics
+  $: pointCounts = currentDualCloud?.pointCounts || { structural: 0, body: 0, accent: 0, atmospheric: 0, total: 0 };
+  $: alphaCoverage = currentMaps ? computeAlphaCoverage(currentMaps) : 0;
+  $: plateStats = currentMaps ? computePlateStats(currentMaps) : null;
+  
+  function computeAlphaCoverage(maps: ReturnType<typeof generateMapsFromMotifPack>): number {
+    if (!maps.alpha) return 0;
+    let covered = 0;
+    for (let i = 0; i < maps.alpha.length; i++) {
+      if (maps.alpha[i] > 0.5) covered++;
+    }
+    return (covered / maps.alpha.length) * 100;
+  }
+  
+  function computePlateStats(maps: ReturnType<typeof generateMapsFromMotifPack>) {
+    const stats = {
+      structure: { mean: 0, max: 0 },
+      tone: { mean: 0, max: 0 },
+      accent: { mean: 0, max: 0 },
+      atmo: { mean: 0, max: 0 }
+    };
+    
+    if (maps.structure) {
+      let sum = 0, max = 0;
+      for (let i = 0; i < maps.structure.length; i++) {
+        sum += maps.structure[i];
+        max = Math.max(max, maps.structure[i]);
+      }
+      stats.structure = { mean: sum / maps.structure.length, max };
+    }
+    if (maps.tone) {
+      let sum = 0, max = 0;
+      for (let i = 0; i < maps.tone.length; i++) {
+        sum += maps.tone[i];
+        max = Math.max(max, maps.tone[i]);
+      }
+      stats.tone = { mean: sum / maps.tone.length, max };
+    }
+    if (maps.accent) {
+      let sum = 0, max = 0;
+      for (let i = 0; i < maps.accent.length; i++) {
+        sum += maps.accent[i];
+        max = Math.max(max, maps.accent[i]);
+      }
+      stats.accent = { mean: sum / maps.accent.length, max };
+    }
+    if (maps.atmo) {
+      let sum = 0, max = 0;
+      for (let i = 0; i < maps.atmo.length; i++) {
+        sum += maps.atmo[i];
+        max = Math.max(max, maps.atmo[i]);
+      }
+      stats.atmo = { mean: sum / maps.atmo.length, max };
+    }
+    
+    return stats;
+  }
 
   // Dual field config
   let useDualField = false;
@@ -44,6 +107,10 @@
     high: 1.0
   };
 
+  // Store the current dual cloud for debug access
+  let currentDualCloud: ReturnType<typeof generateDualFieldPointCloudFromMotifPack> | null = null;
+  let currentMaps: ReturnType<typeof generateMapsFromMotifPack> | null = null;
+  
   function regenerateCloud() {
     if (!renderer) return;
     
@@ -65,11 +132,24 @@
         width = currentText.width;
         height = currentText.height;
       } else if (state.sourceMode === 'motif-pack' && currentMotifPack) {
-        // Use motif pack - generate maps from pack plates
-        const maps = generateMapsFromMotifPack(currentMotifPack);
-        luminance = maps.structural;
-        width = maps.width;
-        height = maps.height;
+        // Use motif pack with plate-driven point generation
+        currentMaps = generateMapsFromMotifPack(currentMotifPack);
+        
+        const dfConfig: Partial<DualFieldConfig> = {
+          density: effectiveDensity,
+          seed: state.seed,
+          dissolveEnabled: state.dissolveEnabled,
+          dissolveDirection: state.dissolveDirection,
+          dissolveEdge: state.dissolveEdge,
+          dissolveWidth: state.dissolveWidth,
+          glitchEnabled: state.glitchEnabled,
+          glitchIntensity: state.glitchIntensity
+        };
+        
+        // Use the new MotifPack-aware point generation
+        currentDualCloud = generateDualFieldPointCloudFromMotifPack(currentMaps, dfConfig);
+        cloud = currentDualCloud.combined;
+        return; // Done - cloud is already set
       } else {
         // Generate from preset
         const maps = generateMapsFromPreset(state.presetId, state.seed);
@@ -90,6 +170,7 @@
       };
       
       const dualCloud = generateDualFieldPointCloud(luminance, width, height, dfConfig);
+      currentDualCloud = dualCloud as any;
       cloud = dualCloud.combined;
     } else {
       // Legacy single-field rendering

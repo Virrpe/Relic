@@ -233,12 +233,11 @@ export function generateMotifMaps(
   }
 }
 
-// Generate MotifMaps from a MotifPack - uses the plates directly
+// Generate MotifMaps from a MotifPack - uses all plates semantically
 export function generateMapsFromMotifPack(pack: MotifPack): MotifMaps {
-  const { width, height, alpha } = pack;
+  const { width, height, alpha, structure, tone, accent, atmo } = pack;
   
-  // Use alpha as the primary structural mask
-  // This represents silhouette/occupancy truth
+  // Alpha is the hard occupancy truth - use as primary structural mask
   const structural: Float32Array = alpha.data;
   
   // Compute edge map from structural (alpha) using Sobel
@@ -249,9 +248,67 @@ export function generateMapsFromMotifPack(pack: MotifPack): MotifMaps {
   
   // Generate protected zones based on structure plate
   // High structure values indicate areas to preserve
-  const protectedZones = detectProtectedZonesFromStructure(structural, width, height);
+  const protectedZones = detectProtectedZonesFromStructure(structure?.data || structural, width, height);
   
   const bounds = computeBoundsFromLuminance(structural, width, height);
+  
+  // Threshold alpha for hard occupancy gate
+  const alphaThreshold = 0.15;
+  const alphaBinary = new Float32Array(width * height);
+  for (let i = 0; i < width * height; i++) {
+    alphaBinary[i] = alpha.data[i] > alphaThreshold ? 1 : 0;
+  }
+  
+  // Process tone plate: apply thresholding and normalization for internal density
+  const toneData = tone?.data || structural;
+  const processedTone = new Float32Array(width * height);
+  const toneThreshold = 0.1;
+  for (let i = 0; i < width * height; i++) {
+    // Tone modulates density inside alpha
+    if (alpha.data[i] > alphaThreshold) {
+      const t = toneData[i];
+      processedTone[i] = t > toneThreshold ? Math.pow((t - toneThreshold) / (1 - toneThreshold), 0.8) : 0;
+    } else {
+      processedTone[i] = 0;
+    }
+  }
+  
+  // Process accent plate: sparse focal highlights
+  const accentData = accent?.data || new Float32Array(width * height).fill(0);
+  const processedAccent = new Float32Array(width * height);
+  const accentThreshold = 0.3; // Higher threshold for sparse accents
+  for (let i = 0; i < width * height; i++) {
+    if (accentData[i] > accentThreshold) {
+      processedAccent[i] = (accentData[i] - accentThreshold) / (1 - accentThreshold);
+    } else {
+      processedAccent[i] = 0;
+    }
+  }
+  
+  // Process atmo plate: atmosphere can exist outside alpha
+  const atmoData = atmo?.data || new Float32Array(width * height).fill(0);
+  const processedAtmo = new Float32Array(width * height);
+  const atmoThreshold = 0.15;
+  for (let i = 0; i < width * height; i++) {
+    if (atmoData[i] > atmoThreshold) {
+      processedAtmo[i] = (atmoData[i] - atmoThreshold) / (1 - atmoThreshold);
+    } else {
+      processedAtmo[i] = 0;
+    }
+  }
+  
+  // Structure: normalized from structure plate (inside alpha only)
+  const structureData = structure?.data || structural;
+  const processedStructure = new Float32Array(width * height);
+  const structThreshold = 0.1;
+  for (let i = 0; i < width * height; i++) {
+    if (alpha.data[i] > alphaThreshold) {
+      const s = structureData[i];
+      processedStructure[i] = s > structThreshold ? Math.pow((s - structThreshold) / (1 - structThreshold), 0.7) : 0;
+    } else {
+      processedStructure[i] = 0;
+    }
+  }
   
   return {
     structural,
@@ -260,7 +317,13 @@ export function generateMapsFromMotifPack(pack: MotifPack): MotifMaps {
     protectedZones,
     width,
     height,
-    bounds
+    bounds,
+    // Store semantic plate data
+    alpha: alphaBinary,
+    structure: processedStructure,
+    tone: processedTone,
+    accent: processedAccent,
+    atmo: processedAtmo
   };
 }
 
