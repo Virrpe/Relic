@@ -42,20 +42,20 @@ void main() {
   vec2 pixelCoord = floor(coord * 3.0) / 3.0;
   
   // Square point shape with slight variation based on layer
-  // Different layers get different "pixel" sizes - smaller for more detail
+  // Different layers get different "pixel" sizes - MUCH smaller for maximum detail
   float pointSize;
   if (vLayerType < 0.5) {
-    // Structural: smaller for more detail
-    pointSize = 0.55;
+    // Structural: tiny for maximum detail
+    pointSize = 0.25;
   } else if (vLayerType < 1.5) {
-    // Body/Tone: smaller gritty grains
-    pointSize = 0.45;
+    // Body/Tone: tiny gritty grains
+    pointSize = 0.2;
   } else if (vLayerType < 2.5) {
     // Accent: tiny sharp pixels
-    pointSize = 0.35;
+    pointSize = 0.15;
   } else {
-    // Atmospheric: smaller dust
-    pointSize = 0.5;
+    // Atmospheric: tiny dust
+    pointSize = 0.2;
   }
   
   // Hard edge - no soft falloff
